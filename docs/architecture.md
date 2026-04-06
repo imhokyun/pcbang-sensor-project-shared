@@ -42,7 +42,7 @@
 | Edge Stream | go2rtc | RTSP → WebRTC/HLS |
 | MQTT Broker | Eclipse Mosquitto | 중앙 서버, TLS 권장 |
 | Backend API | FastAPI (Python) | MQTT subscriber + REST + WS |
-| Database | PostgreSQL + TimescaleDB (검토중) | 시계열 이벤트 이력 |
+| Database | sqlite | 시계열 이벤트 이력 |
 | Frontend | Next.js (React) | App Router |
 | 실시간 통신 | WebSocket (FastAPI) | 또는 SSE |
 
