@@ -18,10 +18,9 @@
 - 응답 포맷 미확정 (매장별 요일별 시작/종료 시간 예상)
 - 폴링 주기: 기본 60분으로 구현, 추후 조정
 
-### 2. Edge 매장 등록 Provisioning 상세
-**영향**: HA Custom Component 초기 설정, `/edge/register` API
-- RP4 이미지에 store_id + secret_key 심는 방법 (USB? 이미지 빌드 시 포함?)
-- 등록 실패 시 재시도 로직
+### 2. Edge 매장 등록 — 등록 실패 처리
+**영향**: HA Custom Component Config Flow UI
+- 등록 실패(네트워크 오류, 잘못된 store_id) 시 사용자 안내 메시지 및 재시도 로직 상세
 
 ### 3. 알림 소리
 - 중요도별로 다른 소리 필요 여부
@@ -33,8 +32,9 @@
 ### 5. 다중 카메라 알림 팝업
 - 1개 알림당 1개 채널(ch01 고정?) vs 매장 전체 채널 선택 가능?
 
-### 6. HA Custom Component 등록 대상 entity 범위
-- 기본: switch 2개, sensor 4개. 추가 기기 연결 시 타입/entity_id 확정 필요
+### 6. HA 기본 entity 제외 목록
+- sun, zone, person, device_tracker 등 기본 제외 예정
+- Edge 개발 시 테스트 후 사용자와 협의하여 제외 목록 확정
 - alert_triggers 초기값도 이에 따라 추가
 
 ---
@@ -43,12 +43,13 @@
 
 | 항목 | 결정 | 문서 |
 |---|---|---|
-| DB 엔진 | SQLite WAL | db-schema.md |
-| MQTT 인증 | 매장별 계정, mosquitto-go-auth | db-schema.md |
-| MQTT 클라이언트 | paho-mqtt 직접 사용, HA 내장 MQTT 사용 안 함 | sensors.md |
-| Entity 조회 방식 | MQTT query/response (request_id 매칭, 10초 timeout) | sensors.md |
-| Entity 상태 publish | HA state_changed → paho-mqtt publish, retain=true | sensors.md |
-| LWT | offline 자동 감지용 Last Will Testament 등록 | sensors.md |
+| DB 엔진 | PostgreSQL (Docker) | db-schema.md |
+| MQTT 인증 | 매장별 계정, mosquitto-go-auth + PostgreSQL | db-schema.md |
+| MQTT 클라이언트 | paho-mqtt 직접 사용, HA 내장 MQTT 사용 안 함 | mqtt.md |
+| Entity 조회 방식 | MQTT query/response (request_id 매칭, 10초 timeout) | mqtt.md |
+| Entity 상태 publish | 모니터링 목록 대상만 publish (config/monitored_entities로 수신) | mqtt.md |
+| LWT | offline 자동 감지용 Last Will Testament 등록 | mqtt.md |
+| Provisioning | Config Flow에서 store_id 입력 → secret_key로 Backend 등록 → MQTT credentials 수신 | mqtt.md |
 | 알림 보관 | 3개월, 매일 14:00 삭제 | db-schema.md |
 | 관제시간 구조 | 요일별, 자정 넘김 허용 (end<start=익일) | db-schema.md |
 | 강제 알림 | force_alert (NULL=스케줄/0=강제OFF/1=강제ON) | db-schema.md |

@@ -1,8 +1,8 @@
 # DB 스키마 설계
 
 ## 엔진
-- SQLite (WAL 모드), 단일 파일, Backend 전용 writer
-- Mosquitto는 `mqtt_credentials` 테이블만 read-only (`mosquitto-go-auth` 플러그인)
+- **PostgreSQL** (Docker), Backend 전용 writer
+- Mosquitto는 `mqtt_credentials` 테이블만 read-only (`mosquitto-go-auth` 플러그인, PostgreSQL 백엔드 사용)
 
 ---
 
@@ -11,7 +11,7 @@
 ### stores
 ```sql
 CREATE TABLE stores (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  id              SERIAL PRIMARY KEY,
   store_id        TEXT UNIQUE NOT NULL,   -- "store_001"
   name            TEXT NOT NULL,          -- "강남점"
   address         TEXT,
@@ -20,8 +20,8 @@ CREATE TABLE stores (
   importance      INTEGER DEFAULT 3,      -- 1(낮음)~5(높음), 4이상=메인화면 붉은 배경
   force_alert     INTEGER DEFAULT NULL,   -- NULL=스케줄따름, 0=강제OFF, 1=강제ON
   status          TEXT DEFAULT 'offline', -- online / offline
-  last_seen_at    DATETIME,
-  registered_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+  last_seen_at    TIMESTAMPTZ,
+  registered_at   TIMESTAMPTZ DEFAULT NOW()
 );
 ```
 
@@ -29,7 +29,7 @@ CREATE TABLE stores (
 매장별 DVR 카메라 채널 (6~14개)
 ```sql
 CREATE TABLE cameras (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  id          SERIAL PRIMARY KEY,
   store_id    TEXT NOT NULL REFERENCES stores(store_id),
   channel     INTEGER NOT NULL,     -- 1~14
   name        TEXT,                 -- "입구", "카운터" (사용자 지정)
@@ -46,7 +46,7 @@ CREATE TABLE cameras (
 사용자 정의 센서/릴레이 타입 (기본값 + 사용자 추가 가능)
 ```sql
 CREATE TABLE entity_types (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  id         SERIAL PRIMARY KEY,
   name       TEXT UNIQUE NOT NULL,  -- "냉장고", "출입문", "카운터", "기타"
   is_default INTEGER DEFAULT 0      -- 1=기본 제공, 0=사용자 추가
 );
@@ -61,7 +61,7 @@ CREATE TABLE entity_types (
 매장에서 선택한 HA entity (센서/스위치) 목록
 ```sql
 CREATE TABLE store_entities (
-  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  id             SERIAL PRIMARY KEY,
   store_id       TEXT NOT NULL REFERENCES stores(store_id),
   ha_entity_id   TEXT NOT NULL,       -- HA entity_id: "binary_sensor.door_01"
   entity_kind    TEXT NOT NULL,       -- sensor / switch
@@ -69,7 +69,7 @@ CREATE TABLE store_entities (
   type_id        INTEGER REFERENCES entity_types(id),
   triggers_alert INTEGER DEFAULT 0,   -- 1=상태변화 시 alert 발생 대상
   current_state  TEXT,
-  last_updated_at DATETIME,
+  last_updated_at TIMESTAMPTZ,
   is_active      INTEGER DEFAULT 1,
   UNIQUE(store_id, ha_entity_id)
 );
@@ -79,7 +79,7 @@ CREATE TABLE store_entities (
 전체 entity 상태 변화 이력 (3개월 보관)
 ```sql
 CREATE TABLE sensor_events (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  id           SERIAL PRIMARY KEY,
   store_id     TEXT NOT NULL,
   ha_entity_id TEXT NOT NULL,
   entity_kind  TEXT NOT NULL,      -- sensor / switch
@@ -87,7 +87,7 @@ CREATE TABLE sensor_events (
   custom_name  TEXT,               -- 변경될 수 있으므로 이벤트 시점 값 저장
   state_from   TEXT,
   state_to     TEXT NOT NULL,
-  occurred_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+  occurred_at  TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX idx_sensor_events_store ON sensor_events(store_id, occurred_at);
 CREATE INDEX idx_sensor_events_time  ON sensor_events(occurred_at);
@@ -97,7 +97,7 @@ CREATE INDEX idx_sensor_events_time  ON sensor_events(occurred_at);
 알림 트리거된 이벤트 (3개월 보관)
 ```sql
 CREATE TABLE alert_events (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  id              SERIAL PRIMARY KEY,
   store_id        TEXT NOT NULL,
   ha_entity_id    TEXT NOT NULL,
   type_name       TEXT,            -- 이벤트 시점 타입명 스냅샷
@@ -107,8 +107,8 @@ CREATE TABLE alert_events (
   stream_url      TEXT,            -- 발생 시점 go2rtc stream URL 스냅샷
   importance      INTEGER,         -- 발생 시점 매장 중요도 스냅샷
   acknowledged_by INTEGER REFERENCES users(id),
-  acknowledged_at DATETIME,
-  occurred_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+  acknowledged_at TIMESTAMPTZ,
+  occurred_at     TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX idx_alert_events_store ON alert_events(store_id, occurred_at);
 CREATE INDEX idx_alert_events_ack   ON alert_events(acknowledged_by, occurred_at);
@@ -118,7 +118,7 @@ CREATE INDEX idx_alert_events_ack   ON alert_events(acknowledged_by, occurred_at
 어떤 entity type + 상태 전환이 alert를 발생시키는지 정의
 ```sql
 CREATE TABLE alert_triggers (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  id          SERIAL PRIMARY KEY,
   type_id     INTEGER NOT NULL REFERENCES entity_types(id),
   state_from  TEXT,          -- NULL = any
   state_to    TEXT NOT NULL, -- "open", "on" 등
@@ -133,14 +133,14 @@ CREATE TABLE alert_triggers (
 매장별 요일별 관제 시간
 ```sql
 CREATE TABLE monitoring_schedules (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  id          SERIAL PRIMARY KEY,
   store_id    TEXT NOT NULL REFERENCES stores(store_id),
   day_of_week INTEGER NOT NULL,  -- 0=월 1=화 2=수 3=목 4=금 5=토 6=일
   start_time  TEXT NOT NULL,     -- "HH:MM"
   end_time    TEXT NOT NULL,     -- "HH:MM" — end < start 이면 익일까지
   is_active   INTEGER DEFAULT 1,
   is_manual   INTEGER DEFAULT 0, -- 0=외부서버 폴링값, 1=수동설정
-  updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(store_id, day_of_week)
 );
 ```
@@ -153,14 +153,14 @@ CREATE TABLE mqtt_credentials (
   store_id      TEXT UNIQUE NOT NULL REFERENCES stores(store_id),
   username      TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,   -- bcrypt
-  created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 ```
 
 ### users
 ```sql
 CREATE TABLE users (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  id            SERIAL PRIMARY KEY,
   username      TEXT UNIQUE NOT NULL,  -- admin1 ~ admin5
   password_hash TEXT NOT NULL,
   display_name  TEXT
@@ -172,7 +172,7 @@ CREATE TABLE users (
 CREATE TABLE system_config (
   key        TEXT PRIMARY KEY,
   value      TEXT,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 -- 키 목록:
 -- external_server_url    외부 관제서버 API URL
@@ -198,6 +198,6 @@ CREATE TABLE system_config (
 ## 자동 삭제 스케줄 (매일 14:00, APScheduler)
 
 ```python
-DELETE FROM sensor_events WHERE occurred_at < datetime('now', '-90 days');
-DELETE FROM alert_events  WHERE occurred_at < datetime('now', '-90 days');
+DELETE FROM sensor_events WHERE occurred_at < NOW() - INTERVAL '90 days';
+DELETE FROM alert_events  WHERE occurred_at < NOW() - INTERVAL '90 days';
 ```

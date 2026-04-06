@@ -42,7 +42,7 @@
 | Edge Stream | go2rtc | RTSP → WebRTC/HLS |
 | MQTT Broker | Eclipse Mosquitto | 중앙 서버, TLS 권장 |
 | Backend API | FastAPI (Python) | MQTT subscriber + REST + WS |
-| Database | sqlite | 시계열 이벤트 이력 |
+| Database | PostgreSQL (Docker) | 이벤트 이력, MQTT 인증 |
 | Frontend | Next.js (React) | App Router |
 | 실시간 통신 | WebSocket (FastAPI) | 또는 SSE |
 
@@ -55,6 +55,7 @@
 | Next.js | 3000 | HTTP |
 | go2rtc API | 1984 | HTTP |
 | go2rtc WebRTC | 8555 | UDP/TCP |
+| PostgreSQL | 5432 | TCP (내부) |
 
 ## 영상 스트림 접근 방식
 

@@ -22,9 +22,9 @@
 ### Backend (중앙 서버)
 | 소프트웨어 | 역할 |
 |---|---|
-| Mosquitto + mosquitto-go-auth | 중앙 MQTT 브로커, 매장별 계정 인증 (SQLite 조회) |
+| Mosquitto + mosquitto-go-auth | 중앙 MQTT 브로커, 매장별 계정 인증 (PostgreSQL 조회) |
 | FastAPI (Python) | REST API + WebSocket 서버 + 스케줄러 |
-| SQLite (WAL) | 단일 DB 파일, Backend 전용 writer |
+| PostgreSQL (Docker) | Backend 전용 writer |
 
 ### Frontend (관제 대시보드 — Next.js)
 | 기능 | 설명 |
@@ -75,12 +75,14 @@
 ## MQTT Topic 구조
 
 ```
-pcbang/{store_id}/sensors/{sensor_id}/state      # 센서 상태
-pcbang/{store_id}/sensors/{sensor_id}/attributes # 센서 메타정보
-pcbang/{store_id}/relays/{relay_id}/state        # 릴레이 현재 상태
-pcbang/{store_id}/relays/{relay_id}/set          # 릴레이 제어 명령 (Backend → Edge)
-pcbang/{store_id}/status                         # Edge heartbeat (online/offline)
+pcbang/{store_id}/status                              # Edge heartbeat + LWT
+pcbang/{store_id}/entities/{ha_entity_id}/state       # 모니터링 대상 entity 상태 변화
+pcbang/{store_id}/response/entities                   # 전체 entity 목록 응답
+pcbang/{store_id}/query/entities                      # 전체 entity 목록 요청 (Backend → Edge)
+pcbang/{store_id}/config/monitored_entities           # 모니터링 entity 목록 전달 (Backend → Edge)
+pcbang/{store_id}/relays/{ha_entity_id}/set           # 릴레이 제어 명령 (Backend → Edge)
 ```
+> 상세 payload는 `contracts/mqtt.md` 참조
 
 ---
 
@@ -97,7 +99,7 @@ pcbang/{store_id}/status                         # Edge heartbeat (online/offlin
 
 | 대상 | 방식 |
 |---|---|
-| MQTT (Edge ↔ Broker) | 매장별 username/password, mosquitto-go-auth + SQLite |
+| MQTT (Edge ↔ Broker) | 매장별 username/password, mosquitto-go-auth + PostgreSQL |
 | 대시보드 | admin1~5 하드코딩 계정, 세션 기반 |
 | Backend API | (내부 전용, 별도 인증 없음 또는 심플 토큰) |
 
@@ -106,7 +108,6 @@ pcbang/{store_id}/status                         # Edge heartbeat (online/offlin
 ## 미결 사항
 
 상세 내용은 `docs/tbd.md` 참조.
-- Edge 기기 구성 및 HA Entity 전체 목록
-- 알림 트리거 조건 전체 목록
 - 외부 관제서버 API 포맷 (URL/토큰 추후 제공)
-- 매장별 DVR 카메라 수 및 go2rtc stream 명칭 규칙
+- HA 기본 entity 제외 목록 (Edge 개발 시 테스트 후 확정)
+- 알림 소리 파일 및 다중 카메라 팝업 처리
