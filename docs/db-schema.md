@@ -106,8 +106,8 @@ CREATE TABLE alert_events (
   state_to        TEXT NOT NULL,
   stream_url      TEXT,            -- 발생 시점 go2rtc stream URL 스냅샷
   importance      INTEGER,         -- 발생 시점 매장 중요도 스냅샷
-  acknowledged_by INTEGER REFERENCES users(id),
-  acknowledged_at TIMESTAMPTZ,
+  acknowledged_by INTEGER DEFAULT NULL REFERENCES users(id),  -- NULL = 미확인
+  acknowledged_at TIMESTAMPTZ DEFAULT NULL,                   -- NULL = 미확인
   occurred_at     TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX idx_alert_events_store ON alert_events(store_id, occurred_at);
@@ -167,6 +167,22 @@ CREATE TABLE users (
 );
 ```
 
+### sessions
+HttpOnly 쿠키 세션 저장소
+```sql
+CREATE TABLE sessions (
+  id         TEXT PRIMARY KEY,         -- UUID v4
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,     -- created_at + 24h (rolling 갱신)
+  last_seen_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_sessions_user ON sessions(user_id);
+CREATE INDEX idx_sessions_expires ON sessions(expires_at);
+```
+> 세션 TTL: 24시간 rolling. 매 요청마다 `last_seen_at` 갱신, `expires_at` 연장.
+> 만료 세션 자동 삭제: `DELETE FROM sessions WHERE expires_at < NOW()` (APScheduler, 매일 02:00)
+
 ### system_config
 ```sql
 CREATE TABLE system_config (
@@ -175,29 +191,48 @@ CREATE TABLE system_config (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 -- 키 목록:
--- external_server_url    외부 관제서버 API URL
--- external_server_token  인증 토큰
--- polling_interval_min   관제시간 폴링 주기 (기본: 60)
--- alert_retention_days   알림 보관 기간 (기본: 90)
--- alert_cleanup_hour     자동 삭제 시각 (기본: 14)
+-- external_server_url     외부 관제서버 API URL
+-- external_server_token   인증 토큰
+-- polling_interval_min    관제시간 폴링 주기 (기본: 60)
+-- alert_retention_days    알림/센서 이벤트 보관 기간 (기본: 90)
+-- alert_cleanup_hour      자동 삭제 시각 (기본: 14)
 ```
 
 ---
 
-## 알림 활성 판단 로직 (Backend)
+## 알림 발생 조건 (Backend)
+
+alert 발생은 아래 **두 조건 모두** 충족해야 한다 (AND):
 
 ```
-1. stores.force_alert = 1  → 무조건 알림 ON
-2. stores.force_alert = 0  → 무조건 알림 OFF
+조건 1. store_entities.triggers_alert = 1  (해당 entity가 알림 대상으로 등록됨)
+조건 2. alert_triggers 테이블에 매칭되는 행 존재
+        - type_id = 해당 entity의 type_id
+        - state_from = NULL (any) 또는 이전 상태와 일치
+        - state_to = 현재 상태와 일치
+        - is_active = 1
+```
+
+alert_events 저장 후 알림 활성 여부 판단:
+
+```
+1. stores.force_alert = 1  → is_in_schedule = true
+2. stores.force_alert = 0  → is_in_schedule = false
 3. stores.force_alert = NULL → monitoring_schedules 조회
    - 오늘 day_of_week의 start~end 범위 내인지 확인
    - end < start면 익일 end까지 포함
-   - is_active = 0이면 해당 요일 관제 없음
+   - is_active = 0이면 해당 요일 관제 없음 → is_in_schedule = false
 ```
+
+결과를 `alert.new` WebSocket 메시지의 `is_in_schedule` 필드에 포함하여 브로드캐스트.
 
 ## 자동 삭제 스케줄 (매일 14:00, APScheduler)
 
+보관 기간은 `system_config` 테이블의 `alert_retention_days` 값 사용 (기본 90일).
+
 ```python
-DELETE FROM sensor_events WHERE occurred_at < NOW() - INTERVAL '90 days';
-DELETE FROM alert_events  WHERE occurred_at < NOW() - INTERVAL '90 days';
+retention = get_config("alert_retention_days", default=90)
+DELETE FROM sensor_events WHERE occurred_at < NOW() - INTERVAL '{retention} days';
+DELETE FROM alert_events  WHERE occurred_at < NOW() - INTERVAL '{retention} days';
+DELETE FROM sessions      WHERE expires_at  < NOW();
 ```

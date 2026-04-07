@@ -4,13 +4,32 @@ Base URL: `http://backend:8080/api/v1`
 
 ---
 
+## 인증 방식
+
+- **방식**: HttpOnly 쿠키 세션
+- `POST /auth/login` 성공 시 → `Set-Cookie: session_id=<UUID>; HttpOnly; SameSite=Lax; Path=/`
+- 이후 모든 REST 요청 및 **WebSocket 연결**에 쿠키 자동 포함
+- 세션 만료 시 401 응답 → 클라이언트가 `/login`으로 리다이렉트
+- 세션 TTL: 24시간 (rolling)
+
+---
+
 ## REST Endpoints
 
 ### Auth
 | Method | Path | 설명 |
 |---|---|---|
-| POST | /auth/login | 로그인 (username, password → session token) |
-| POST | /auth/logout | 로그아웃 |
+| POST | /auth/login | 로그인 → HttpOnly 쿠키 세션 발급 |
+| POST | /auth/logout | 로그아웃 → 세션 삭제 + 쿠키 만료 |
+
+**POST /auth/login request body:**
+```json
+{ "username": "admin1", "password": "..." }
+```
+**response:**
+```json
+{ "success": true, "data": { "username": "admin1", "display_name": "관제 1" } }
+```
 
 ### Stores
 | Method | Path | 설명 |
@@ -20,6 +39,16 @@ Base URL: `http://backend:8080/api/v1`
 | POST | /stores | 매장 등록 |
 | PUT | /stores/{store_id} | 매장 정보 수정 (name, address, device_sn, importance, force_alert) |
 | DELETE | /stores/{store_id} | 매장 삭제 |
+
+**POST /stores request body:**
+```json
+{ "store_id": "store_001", "name": "강남점", "address": "서울 강남구 ...", "device_sn": "RPI4-XXXX", "importance": 3 }
+```
+**PUT /stores/{store_id} request body** (부분 수정 가능, 변경할 필드만 포함):
+```json
+{ "name": "강남점", "address": "...", "device_sn": "...", "importance": 4, "force_alert": null }
+```
+> `force_alert`: `null`=스케줄 따름, `0`=강제 OFF, `1`=강제 ON
 
 ### Cameras
 | Method | Path | 설명 |
@@ -34,11 +63,20 @@ Base URL: `http://backend:8080/api/v1`
 ### HA Entities
 | Method | Path | 설명 |
 |---|---|---|
-| GET | /stores/{store_id}/ha/entities | HA에서 전체 entity 목록 조회 (실시간 query) |
+| GET | /stores/{store_id}/ha/entities | HA에서 전체 entity 목록 조회 (실시간 MQTT query, 10초 timeout) |
 | GET | /stores/{store_id}/entities | 등록된 entity 목록 + 현재 상태 |
-| POST | /stores/{store_id}/entities | entity 등록 (ha_entity_id, custom_name, type_id, triggers_alert) |
+| POST | /stores/{store_id}/entities | entity 등록 |
 | PUT | /stores/{store_id}/entities/{ha_entity_id} | entity 수정 |
-| DELETE | /stores/{store_id}/entities/{ha_entity_id} | entity 제거 |
+| DELETE | /stores/{store_id}/entities/{ha_entity_id} | entity 제거 + monitored_entities 재발행 |
+
+**POST /stores/{store_id}/entities request body:**
+```json
+{ "ha_entity_id": "binary_sensor.door_01", "entity_kind": "sensor", "custom_name": "출입구 도어", "type_id": 1, "triggers_alert": 1 }
+```
+**PUT /stores/{store_id}/entities/{ha_entity_id} request body** (부분 수정):
+```json
+{ "custom_name": "메인 도어", "type_id": 1, "triggers_alert": 1 }
+```
 
 ### Entity Types
 | Method | Path | 설명 |
@@ -60,6 +98,13 @@ Base URL: `http://backend:8080/api/v1`
 | PUT | /stores/{store_id}/schedules/{day_of_week} | 수동 시간 수정 (is_manual=true) |
 | POST | /stores/{store_id}/schedules/sync | 외부 서버에서 즉시 폴링하여 업데이트 |
 
+**PUT /stores/{store_id}/schedules/{day_of_week} request body:**
+```json
+{ "start_time": "22:00", "end_time": "12:00", "is_active": 1 }
+```
+> `day_of_week`: 0=월 1=화 2=수 3=목 4=금 5=토 6=일
+> `end_time < start_time` → 익일까지 관제 (예: 22:00~12:00 = 익일 정오까지)
+
 ### Alerts
 | Method | Path | 설명 |
 |---|---|---|
@@ -71,7 +116,21 @@ Base URL: `http://backend:8080/api/v1`
 |---|---|---|
 | GET | /logs | 이벤트 이력 조회 |
 
-**Query params**: `store_id`, `type_name`, `state_from`, `state_to`, `from` (datetime), `to` (datetime), `page`, `limit`
+**Query params**: `store_id`, `type_name`, `state_from`, `state_to`, `from` (datetime ISO8601), `to` (datetime ISO8601), `page` (기본 1), `limit` (기본 50, 최대 200)
+
+**GET /logs response:**
+```json
+{
+  "success": true,
+  "data": {
+    "items": [ { "id": 1, "store_id": "store_001", "store_name": "강남점", "ha_entity_id": "...", "custom_name": "출입구 도어", "type_name": "출입문", "state_from": "closed", "state_to": "open", "occurred_at": "2026-04-06T22:05:00Z" } ],
+    "total_count": 1024,
+    "page": 1,
+    "limit": 50,
+    "total_pages": 21
+  }
+}
+```
 
 ### Edge 등록 (Edge → Backend)
 | Method | Path | 설명 |
@@ -89,19 +148,36 @@ Base URL: `http://backend:8080/api/v1`
 
 ## 공통 Response 형식
 
+**성공:**
 ```json
-{
-  "success": true,
-  "data": {},
-  "error": null
-}
+{ "success": true, "data": {} }
 ```
+
+**에러:**
+```json
+{ "success": false, "error": { "code": "STORE_NOT_FOUND", "message": "매장을 찾을 수 없습니다." } }
+```
+
+**HTTP 상태 코드:**
+| 상태 | 의미 | 예시 error code |
+|---|---|---|
+| 400 | 잘못된 요청 (파라미터 누락/형식 오류) | `INVALID_REQUEST` |
+| 401 | 인증 필요 (세션 없음 또는 만료) | `UNAUTHORIZED` |
+| 404 | 리소스 없음 | `STORE_NOT_FOUND`, `ENTITY_NOT_FOUND` |
+| 409 | 중복 (이미 존재) | `STORE_ID_CONFLICT`, `ENTITY_ALREADY_EXISTS` |
+| 500 | 서버 내부 오류 | `INTERNAL_ERROR` |
+| 503 | 외부 서비스 장애 (HA query timeout 등) | `HA_QUERY_TIMEOUT` |
 
 ---
 
 ## WebSocket
 
 `ws://backend:8080/ws`
+
+**인증**: HttpOnly 쿠키 세션 자동 포함. 세션 없으면 HTTP 401로 연결 거부.
+
+**재연결 동작**: 재연결 시 서버가 `init` 메시지를 즉시 재전송하여 전체 상태 재동기화.
+클라이언트는 재연결 후 `init` 수신 전까지 UI를 "연결 중..." 상태로 표시 권장.
 
 ### 연결 후 초기 메시지
 ```json
@@ -147,9 +223,12 @@ Base URL: `http://backend:8080/api/v1`
   "state_from": "closed",
   "state_to": "open",
   "stream_url": "http://1.2.3.4:1984/stream/store_001_ch01",
+  "is_in_schedule": true,
   "timestamp": "2026-04-06T22:05:00Z"
 }
 ```
+> `is_in_schedule`: `force_alert` 및 `monitoring_schedules` 기준 Backend 판단 결과.
+> Frontend는 `is_in_schedule=true` 인 경우에만 소리 알림 재생. 화면 표시는 항상.
 
 ### 알림 확인 브로드캐스트 (1명 체크 → 전원 반영)
 ```json

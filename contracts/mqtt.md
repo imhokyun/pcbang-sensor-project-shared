@@ -6,6 +6,22 @@
 - 모든 메시지 JSON, QoS 1, retain 여부 항목별 명시
 - Edge는 Backend로부터 받은 **monitored entity 목록에 있는 entity의 상태 변화만** 발행
 
+## MQTT 연결 파라미터 (paho-mqtt)
+
+| 파라미터 | 값 | 설명 |
+|---|---|---|
+| keepalive | 60초 | Mosquitto가 60초 이상 무응답 시 연결 끊음 |
+| clean_session | False | 재연결 시 QoS 1 미수신 메시지 유지 |
+| reconnect_on_failure | True | 자동 재연결 활성화 |
+| reconnect_delay | 5초 (초기) / 최대 60초 (지수 백오프) | 재연결 간격 |
+| LWT QoS | 1 | Mosquitto가 offline 메시지 발행 시 QoS |
+
+## Heartbeat 주기
+
+- Edge: **30초마다** `pcbang/{store_id}/status` 에 `status: "online"` publish
+- Backend: 마지막 heartbeat 수신 후 **90초 초과** 시 해당 매장 `offline` 처리 → WS `store.status` 브로드캐스트
+- 재연결 직후 즉시 heartbeat publish (30초 대기 없이)
+
 ---
 
 ## MQTT Topic 전체 구조
@@ -107,9 +123,10 @@ pcbang/{store_id}/relays/{ha_entity_id}/set           # 릴레이 제어 명령
 | 시점 | 동작 |
 |---|---|
 | 최초 설치 (Config Flow) | store_id 입력 → Backend 등록 요청 → MQTT credentials 수신 저장 |
-| 시작 시 | Mosquitto 연결, LWT 등록, heartbeat publish, `config/monitored_entities` 구독 |
-| `config/monitored_entities` 수신 | 모니터링 entity 목록 캐시 업데이트 |
+| 시작 시 | Mosquitto 연결, LWT 등록, 즉시 heartbeat publish, `config/monitored_entities` 구독 |
+| `config/monitored_entities` 수신 | 모니터링 entity 목록 메모리 캐시 업데이트 (retain=true이므로 재연결 시 자동 재수신) |
 | HA state_changed 이벤트 | 모니터링 목록에 있는 경우에만 MQTT publish |
 | `query/entities` 수신 | HA 기본 entity 제외한 전체 목록 응답 |
 | `relays/.../set` 수신 | hass.services.call()로 switch 제어 |
 | 연결 끊김 | LWT 자동 발행 → Backend offline 감지 |
+| 재연결 성공 | 즉시 heartbeat publish. `config/monitored_entities`는 retain=true이므로 Mosquitto가 자동 재전송 → 캐시 자동 복원 |
