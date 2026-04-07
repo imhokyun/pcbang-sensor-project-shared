@@ -67,6 +67,7 @@ CREATE TABLE store_entities (
   custom_name    TEXT,                -- "출입구 도어" (사용자 지정 명칭)
   type_id        INTEGER REFERENCES entity_types(id),
   triggers_alert INTEGER DEFAULT 0,   -- 1=상태변화 시 alert 발생 대상
+  camera_channel INTEGER,             -- 연결된 카메라 채널 번호 (NULL=미연결)
   current_state  TEXT,
   last_updated_at TIMESTAMPTZ,
   is_active      INTEGER DEFAULT 1,
