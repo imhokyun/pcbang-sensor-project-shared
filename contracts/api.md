@@ -42,7 +42,7 @@ Base URL: `http://backend:8080/api/v1`
 
 **POST /stores request body:**
 ```json
-{ "store_id": "store_001", "name": "강남점", "address": "서울 강남구 ...", "device_sn": "RPI4-XXXX", "importance": 3 }
+{ "store_id": 30584, "name": "강남점", "address": "서울 강남구 ...", "device_sn": "RPI4-XXXX", "importance": 3 }
 ```
 **PUT /stores/{store_id} request body** (부분 수정 가능, 변경할 필드만 포함):
 ```json

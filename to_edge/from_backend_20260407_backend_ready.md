@@ -27,7 +27,7 @@ curl -c /tmp/cookies.txt -X POST http://localhost:8080/api/v1/auth/login \
 # 매장 등록
 curl -b /tmp/cookies.txt -X POST http://localhost:8080/api/v1/stores \
   -H "Content-Type: application/json" \
-  -d '{"store_id":"store_001","name":"강남점","address":"서울 강남구","importance":4}'
+  -d '{"store_id":30584,"name":"강남점","address":"서울 강남구","importance":4}'
 ```
 
 ### 2단계: Edge 컴포넌트에서 등록 요청 (인증 불필요)
@@ -35,7 +35,7 @@ curl -b /tmp/cookies.txt -X POST http://localhost:8080/api/v1/stores \
 ```bash
 curl -X POST http://localhost:8080/api/v1/edge/register \
   -H "Content-Type: application/json" \
-  -d '{"store_id":"store_001","secret_key":"change-me-shared-with-edge-component"}'
+  -d '{"store_id":30584,"secret_key":"change-me-shared-with-edge-component"}'
 ```
 
 응답:
@@ -45,7 +45,7 @@ curl -X POST http://localhost:8080/api/v1/edge/register \
   "data": {
     "mqtt_host": "localhost",
     "mqtt_port": 1883,
-    "username": "store_001",
+    "username": "30584",
     "password": "<generated>"
   }
 }
@@ -58,8 +58,8 @@ curl -X POST http://localhost:8080/api/v1/edge/register \
 ## MQTT 연결 파라미터
 
 ```python
-client = mqtt.Client(client_id="store_001", clean_session=False, protocol=mqtt.MQTTv311)
-client.username_pw_set(username="store_001", password="<register 응답값>")
+client = mqtt.Client(client_id="30584", clean_session=False, protocol=mqtt.MQTTv311)
+client.username_pw_set(username="30584", password="<register 응답값>")
 client.connect("localhost", 1883, keepalive=60)
 ```
 
@@ -74,7 +74,7 @@ QoS   : 1
 Retain: true
 Payload:
 {
-  "store_id": "store_001",
+  "store_id": 30584,
   "status": "online",
   "go2rtc_url": "http://<edge_ip>:1984",
   "timestamp": "2026-04-07T10:00:00Z"
@@ -95,7 +95,7 @@ QoS   : 1
 Retain: true
 Payload:
 {
-  "store_id": "store_001",
+  "store_id": 30584,
   "ha_entity_id": "binary_sensor.door_entrance",
   "state": "open",
   "timestamp": "2026-04-07T10:00:01Z"
@@ -110,7 +110,7 @@ Retain: false
 Payload:
 {
   "request_id": "<Backend이 보낸 uuid>",
-  "store_id": "store_001",
+  "store_id": 30584,
   "entities": [
     {
       "ha_entity_id": "binary_sensor.door_entrance",
@@ -144,7 +144,7 @@ pcbang/{store_id}/relays/{ha_entity_id}/set → 릴레이 제어 명령
 ### `config/monitored_entities` 수신 예시
 ```json
 {
-  "store_id": "store_001",
+  "store_id": 30584,
   "entities": ["binary_sensor.door_entrance", "binary_sensor.fridge_01"],
   "timestamp": "..."
 }
@@ -164,9 +164,9 @@ pcbang/{store_id}/relays/{ha_entity_id}/set → 릴레이 제어 명령
 ```bash
 # Mosquitto 클라이언트 설치 후 heartbeat 발행 테스트
 mosquitto_pub -h localhost -p 1883 \
-  -u store_001 -P "<password>" \
-  -t "pcbang/store_001/status" -r -q 1 \
-  -m '{"store_id":"store_001","status":"online","go2rtc_url":"http://192.168.1.100:1984","timestamp":"2026-04-07T10:00:00Z"}'
+  -u 30584 -P "<password>" \
+  -t "pcbang/30584/status" -r -q 1 \
+  -m '{"store_id":30584,"status":"online","go2rtc_url":"http://192.168.1.100:1984","timestamp":"2026-04-07T10:00:00Z"}'
 ```
 
 Backend가 수신하면 해당 매장 `status`가 `online`으로 바뀌고 WS로 `store.status` 이벤트가 브로드캐스트됩니다.

@@ -44,12 +44,12 @@ pcbang/{store_id}/relays/{ha_entity_id}/set           # 릴레이 제어 명령
 
 ```
 1. HA에 Custom Component 설치
-2. HA 통합 설정 페이지(Config Flow)에서 store_id(매장 번호) 입력
+2. HA 통합 설정 페이지(Config Flow)에서 store_id(관제서버 매장 번호, 숫자) 입력
 3. Component → Backend 등록 요청:
    POST https://{backend}/api/v1/edge/register
-   { "store_id": "store_001", "secret_key": "<COMPONENT_HARDCODED_KEY>" }
+   { "store_id": 30584, "secret_key": "<COMPONENT_HARDCODED_KEY>" }
 4. Backend: secret_key 검증 → MQTT 계정 생성 → 응답
-   { "mqtt_host": "...", "mqtt_port": 8883, "username": "store_001", "password": "..." }
+   { "mqtt_host": "...", "mqtt_port": 8883, "username": "30584", "password": "..." }
 5. Component: 수신한 credentials로 Mosquitto 연결
 6. Backend: pcbang/{store_id}/config/monitored_entities 발행 (초기값 빈 목록)
 ```
@@ -63,9 +63,9 @@ pcbang/{store_id}/relays/{ha_entity_id}/set           # 릴레이 제어 명령
 ### Edge Heartbeat (+ LWT)
 **Topic**: `pcbang/{store_id}/status` | retain: true
 ```json
-{ "store_id": "store_001", "status": "online", "go2rtc_url": "http://1.2.3.4:1984", "timestamp": "..." }
+{ "store_id": 30584, "status": "online", "go2rtc_url": "http://1.2.3.4:1984", "timestamp": "..." }
 ```
-> LWT: `{ "store_id": "store_001", "status": "offline", "timestamp": "" }` (Mosquitto가 자동 발행)
+> LWT: `{ "store_id": 30584, "status": "offline", "timestamp": "" }` (Mosquitto가 자동 발행)
 
 ### Entity 전체 목록 요청 / 응답
 **Request** (Backend → Edge): `pcbang/{store_id}/query/entities` | retain: false
@@ -77,7 +77,7 @@ pcbang/{store_id}/relays/{ha_entity_id}/set           # 릴레이 제어 명령
 ```json
 {
   "request_id": "uuid",
-  "store_id": "store_001",
+  "store_id": 30584,
   "entities": [
     { "ha_entity_id": "binary_sensor.door_entrance", "entity_kind": "sensor", "domain": "binary_sensor", "current_state": "closed", "friendly_name": "Door Entrance" },
     { "ha_entity_id": "switch.relay_01",             "entity_kind": "switch", "domain": "switch",        "current_state": "off",    "friendly_name": "Relay 01" }
@@ -93,7 +93,7 @@ pcbang/{store_id}/relays/{ha_entity_id}/set           # 릴레이 제어 명령
 **Topic**: `pcbang/{store_id}/config/monitored_entities` | retain: true
 ```json
 {
-  "store_id": "store_001",
+  "store_id": 30584,
   "entities": ["binary_sensor.door_entrance", "binary_sensor.fridge_01", "switch.relay_01"],
   "timestamp": "..."
 }
@@ -105,7 +105,7 @@ pcbang/{store_id}/relays/{ha_entity_id}/set           # 릴레이 제어 명령
 ### Entity 상태 변화 (모니터링 대상만)
 **Topic**: `pcbang/{store_id}/entities/{ha_entity_id}/state` | retain: true
 ```json
-{ "store_id": "store_001", "ha_entity_id": "binary_sensor.door_entrance", "state": "open", "timestamp": "..." }
+{ "store_id": 30584, "ha_entity_id": "binary_sensor.door_entrance", "state": "open", "timestamp": "..." }
 ```
 
 ### 릴레이 제어

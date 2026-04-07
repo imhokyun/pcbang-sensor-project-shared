@@ -12,7 +12,7 @@
 ```sql
 CREATE TABLE stores (
   id              SERIAL PRIMARY KEY,
-  store_id        TEXT UNIQUE NOT NULL,   -- "store_001"
+  store_id        INTEGER UNIQUE NOT NULL, -- 관제서버 storeNo (예: 30584)
   name            TEXT NOT NULL,          -- "강남점"
   address         TEXT,
   device_sn       TEXT,                   -- Edge 기기 시리얼 번호
@@ -30,12 +30,12 @@ CREATE TABLE stores (
 ```sql
 CREATE TABLE cameras (
   id          SERIAL PRIMARY KEY,
-  store_id    TEXT NOT NULL REFERENCES stores(store_id),
+  store_id    INTEGER NOT NULL REFERENCES stores(store_id),
   channel     INTEGER NOT NULL,     -- 1~14
   name        TEXT,                 -- "입구", "카운터" (사용자 지정)
   rtsp_main   TEXT,                 -- rtsp://ip:554/channel/01/main
   rtsp_sub    TEXT,                 -- rtsp://ip:554/channel/01/sub
-  stream_name TEXT,                 -- go2rtc stream key: "store_001_ch01"
+  stream_name TEXT,                 -- go2rtc stream key: "30584_ch01"
   is_active   INTEGER DEFAULT 1,
   UNIQUE(store_id, channel)
 );
@@ -62,7 +62,7 @@ CREATE TABLE entity_types (
 ```sql
 CREATE TABLE store_entities (
   id             SERIAL PRIMARY KEY,
-  store_id       TEXT NOT NULL REFERENCES stores(store_id),
+  store_id       INTEGER NOT NULL REFERENCES stores(store_id),
   ha_entity_id   TEXT NOT NULL,       -- HA entity_id: "binary_sensor.door_01"
   entity_kind    TEXT NOT NULL,       -- sensor / switch
   custom_name    TEXT,                -- "출입구 도어" (사용자 지정 명칭)
@@ -80,7 +80,7 @@ CREATE TABLE store_entities (
 ```sql
 CREATE TABLE sensor_events (
   id           SERIAL PRIMARY KEY,
-  store_id     TEXT NOT NULL,
+  store_id     INTEGER NOT NULL,
   ha_entity_id TEXT NOT NULL,
   entity_kind  TEXT NOT NULL,      -- sensor / switch
   type_name    TEXT,               -- entity_types.name 스냅샷
@@ -150,7 +150,7 @@ CREATE TABLE monitoring_schedules (
 ### mqtt_credentials
 ```sql
 CREATE TABLE mqtt_credentials (
-  store_id      TEXT UNIQUE NOT NULL REFERENCES stores(store_id),
+  store_id      INTEGER NOT NULL REFERENCES stores(store_id),
   username      TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,   -- bcrypt
   created_at    TIMESTAMPTZ DEFAULT NOW()
