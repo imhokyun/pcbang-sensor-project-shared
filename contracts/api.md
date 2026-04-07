@@ -54,11 +54,21 @@ Base URL: `http://backend:8080/api/v1`
 | Method | Path | 설명 |
 |---|---|---|
 | GET | /stores/{store_id}/cameras | 카메라 채널 목록 |
-| POST | /stores/{store_id}/cameras | 카메라 추가 → go2rtc API 즉시 반영 |
-| PUT | /stores/{store_id}/cameras/{channel} | RTSP URL 수정 → go2rtc API 즉시 반영 |
-| DELETE | /stores/{store_id}/cameras/{channel} | 카메라 삭제 → go2rtc stream 제거 |
+| POST | /stores/{store_id}/cameras | 카메라 채널 추가 |
+| PUT | /stores/{store_id}/cameras/{channel} | 채널 정보 수정 |
+| DELETE | /stores/{store_id}/cameras/{channel} | 채널 삭제 |
 
-> go2rtc 연동: `PUT http://{go2rtc_url}/api/streams/{stream_name}` (Backend 내부 호출)
+**카메라 응답 예시** (`GET /stores/30584/cameras`):
+```json
+{
+  "channel": 1,
+  "name": "CH1",
+  "stream_source": "ch1_sub",
+  "stream_url": "http://localhost:1984/stream.html?src=ch1_sub"
+}
+```
+> `stream_url` = `stores.go2rtc_url` + `/stream.html?src=` + `stream_source` (Backend가 조합하여 반환)  
+> go2rtc 소스 설정(RTSP 연결 등)은 Edge 팀 담당. Backend는 소스명(`stream_source`)만 저장.
 
 ### HA Entities
 | Method | Path | 설명 |

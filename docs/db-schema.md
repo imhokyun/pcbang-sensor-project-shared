@@ -29,18 +29,17 @@ CREATE TABLE stores (
 매장별 DVR 카메라 채널 (6~14개)
 ```sql
 CREATE TABLE cameras (
-  id          SERIAL PRIMARY KEY,
-  store_id    INTEGER NOT NULL REFERENCES stores(store_id),
-  channel     INTEGER NOT NULL,     -- 1~14
-  name        TEXT,                 -- "입구", "카운터" (사용자 지정)
-  rtsp_main   TEXT,                 -- rtsp://ip:554/channel/01/main
-  rtsp_sub    TEXT,                 -- rtsp://ip:554/channel/01/sub
-  stream_name TEXT,                 -- go2rtc stream key: "30584_ch01"
-  is_active   INTEGER DEFAULT 1,
+  id             SERIAL PRIMARY KEY,
+  store_id       INTEGER NOT NULL REFERENCES stores(store_id),
+  channel        INTEGER NOT NULL,      -- 1~14
+  name           TEXT,                  -- "입구", "카운터" (사용자 지정)
+  stream_source  TEXT,                  -- go2rtc 소스명: "ch1_sub", "ch2_sub"
+  is_active      INTEGER DEFAULT 1,
   UNIQUE(store_id, channel)
 );
 ```
-> **go2rtc 연동**: 카메라 저장/수정 시 Backend가 `PUT http://{go2rtc_url}/api/streams/{stream_name}` 호출하여 실시간 반영. config.yaml reload 불필요.
+> **stream_url 조합**: `stores.go2rtc_url + "/stream.html?src=" + cameras.stream_source`  
+> go2rtc 자체 설정(RTSP 주소 등)은 Edge 팀이 go2rtc config.yaml로 관리. Backend는 소스명만 저장.
 
 ### entity_types
 사용자 정의 센서/릴레이 타입 (기본값 + 사용자 추가 가능)
