@@ -15,7 +15,7 @@
 | reconnect_on_failure | True | 자동 재연결 활성화 |
 | reconnect_delay | 5초 (초기) / 최대 60초 (지수 백오프) | 재연결 간격 |
 | LWT QoS | 1 | Mosquitto가 offline 메시지 발행 시 QoS |
-| MQTT 포트 | 8883 (TLS, 운영) / 1883 (평문, 로컬 개발) | Edge는 수신한 mqtt_port가 1883이면 TLS 미사용 |
+| MQTT 포트 | **8883** (username/password 인증, TLS 없음) | Edge는 항상 8883 사용. 1883은 Backend 전용(localhost 내부) |
 
 ## Heartbeat 주기
 
@@ -53,7 +53,7 @@ pcbang/{store_id}/entities/{ha_entity_id}/long_open   # 장시간 개방 감지 
    POST {backend_url}/api/v1/edge/register
    { "store_id": 30584, "secret_key": "change-me-shared-with-edge-component" }
 4. Backend: secret_key 검증 → MQTT 계정 생성 → 응답
-   { "success": true, "data": { "mqtt_host": "pcbang-mosquitto", "mqtt_port": 8883, "username": "30584", "password": "..." } }
+   { "success": true, "data": { "mqtt_host": "192.168.x.x", "mqtt_port": 8883, "username": "30584", "password": "..." } }
 5. Component: data 필드 언래핑 후 credentials로 Mosquitto 연결
 6. Backend: pcbang/{store_id}/config/monitored_entities 발행 (초기값 빈 목록)
 ```
@@ -169,7 +169,7 @@ pcbang/{store_id}/entities/{ha_entity_id}/long_open   # 장시간 개방 감지 
 | 시점 | 동작 |
 |---|---|
 | 최초 설치 (Config Flow) | store_id(정수) + backend_url 입력 → Backend 등록 요청 → MQTT credentials 수신 저장 |
-| 시작 시 | Mosquitto 연결 (port!=1883이면 TLS), LWT 등록(retain=false), 즉시 heartbeat publish(retain=true), `config/monitored_entities` + `query/entities` + `relays/#` 구독 |
+| 시작 시 | Mosquitto 8883 연결 (TLS 없음, username/password 인증), LWT 등록(retain=false), 즉시 heartbeat publish(retain=true), `config/monitored_entities` + `query/entities` + `relays/#` 구독 |
 | `config/monitored_entities` 수신 | 모니터링 entity 목록 메모리 캐시 업데이트 (retain=true이므로 재연결 시 자동 재수신) |
 | HA state_changed 이벤트 | 모니터링 목록에 있는 경우에만 MQTT publish |
 | `query/entities` 수신 | 확정된 제외 목록 필터링 후 전체 entity 목록 응답 |
