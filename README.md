@@ -14,52 +14,106 @@ shared/
 │   ├── mqtt.md          # MQTT topic/payload 계약, Provisioning 흐름
 │   └── api.md           # REST/WebSocket API 계약
 ├── docs/
-│   ├── project-vision.md   # 서비스 목표, 전체 흐름
-│   ├── architecture.md     # 시스템 구성도, 기술 스택
-│   ├── db-schema.md        # 전체 DB 테이블 DDL (PostgreSQL)
-│   ├── frontend-screens.md # 화면별 UI 설계
-│   └── tbd.md              # 미결 사항
-├── to_backend/          # frontend/edge → backend 요청함
-├── to_frontend/         # backend/edge → frontend 요청함
-└── to_edge/             # backend/frontend → edge 요청함
+│   ├── project-vision.md
+│   ├── architecture.md
+│   ├── db-schema.md
+│   ├── frontend-screens.md
+│   └── ...
+├── backend/
+│   ├── status.md        # ← 에이전트 시작 시 유일한 진입점
+│   ├── request/         # 다른 팀이 보낸 요청 (미검토)
+│   ├── todo/            # 검토 완료, 작업 진행 중
+│   └── done/            # 완료된 태스크
+├── frontend/
+│   ├── status.md
+│   ├── request/ / todo/ / done/
+├── edge/
+│   ├── status.md
+│   ├── request/ / todo/ / done/
+├── orchestrator/
+│   ├── status.md
+│   ├── request/ / todo/ / done/
+└── PROJECT_STATUS.md    # 전체 스프린트 현황 (Orchestrator 유지)
 ```
 
 ---
 
-## 에이전트 간 통신 규칙
+## 에이전트 시작 시 읽기 순서
 
-각 에이전트는 자신의 inbox 폴더(`to_{self}/`)만 읽고, 다른 에이전트에게 보낼 파일은 상대 폴더에 생성한다.
-
-**파일명 규칙**: `from_{발신}_{YYYYMMDD}_{주제}.md`
-
-```bash
-# 예: backend agent가 frontend에게 API 변경사항 전달
-shared/to_frontend/from_backend_20260406_api_change.md
-
-# 작성 후 push
-cd shared
-git add to_frontend/from_backend_20260406_api_change.md
-git commit -m "backend→frontend: API 변경사항 전달"
-git push origin main
+```
+1. shared/{내 팀}/status.md  ← 유일한 진입점
+2. shared/{내 팀}/todo/ 파일 ← status.md가 가리키는 것만
+3. shared/contracts/api.md, contracts/mqtt.md  ← 항상
+4. shared/docs/  ← 필요한 파일만 (매 세션 전체 읽지 말 것)
 ```
 
-각 에이전트는 작업 시작 시 및 수시로 `git pull origin main`으로 inbox를 확인한다.
+**절대 읽지 말 것**: `done/` 폴더의 파일 (완료된 작업, 구버전 파일)
+
+---
+
+## 태스크 상태 흐름
+
+```
+[다른 팀이 생성]    [내 팀 검토·수락]    [작업 완료]
+  request/  →  git mv  →  todo/  →  git mv  →  done/
+```
+
+| 폴더 | 의미 | 에이전트 행동 |
+|------|------|------------|
+| `request/` | 수신된 요청, 미검토 | 검토 후 수락 시 todo/로 이동 |
+| `todo/` | 현재 작업 대상 | 파일 읽고 작업 진행 |
+| `done/` | 완료 아카이브 | **읽지 말 것** |
+
+---
+
+## 파일명 규칙
+
+`from_{발신팀}_{주제}_{날짜}.md`
+
+```
+from_orchestrator_a4_be_long_open_20260408.md
+from_edge_a4_timer_spec_20260409.md
+from_frontend_b1_api_request_20260409.md
+```
+
+- 각 태스크 = 파일 1개 (여러 태스크 묶지 않음)
+- 발신팀 접두사 유지 → 폴더 위치(수신팀) + 파일명(발신팀)으로 소통 추적
+
+---
+
+## 다른 팀에 요청 보내는 방법
+
+```bash
+# 1. 상대 팀 request/ 에 파일 생성
+# 예: Orchestrator → Backend
+cat > shared/backend/request/from_orchestrator_new_feature_20260410.md << 'EOF'
+# ...태스크 내용...
+EOF
+
+# 2. 상대 팀 status.md 업데이트 (📥 request 섹션에 추가)
+
+# 3. push
+cd shared
+git add .
+git commit -m "orchestrator→backend: 새 기능 요청"
+git push origin main
+```
 
 ---
 
 ## Submodule 사용법
 
 ```bash
-# 최초 초기화
-git submodule update --init --recursive
-
 # 최신 내용 반영
 cd shared && git pull origin main && cd ..
-git add shared && git commit -m "Update shared ref"
 
-# 변경사항 push (shared 내부에서)
+# 변경사항 push
 cd shared
 git add .
-git commit -m "Update contracts/docs"
+git commit -m "설명"
 git push origin main
+cd ..
+git add shared
+git commit -m "Update shared ref"
+git push
 ```
