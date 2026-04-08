@@ -197,11 +197,11 @@ Base URL: `http://backend:8080/api/v1`
   "type": "init",
   "stores": [
     {
-      "store_id": "store_001",
+      "store_id": 30584,
       "name": "강남점",
       "importance": 4,
       "status": "online",
-      "entities": [{ "ha_entity_id": "...", "custom_name": "출입구", "current_state": "closed" }]
+      "entities": [{ "ha_entity_id": "...", "custom_name": "출입구", "current_state": "off" }]
     }
   ],
   "pending_alerts": [...]
@@ -261,8 +261,9 @@ Base URL: `http://backend:8080/api/v1`
 ```json
 {
   "type": "store.status",
-  "store_id": "store_001",
+  "store_id": 30584,
   "status": "online | offline",
   "timestamp": "2026-04-06T22:00:00Z"
 }
 ```
+> `store_id`: 정수형 (INTEGER)

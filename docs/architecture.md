@@ -60,9 +60,14 @@
 ## 영상 스트림 접근 방식
 
 ```
-Frontend → go2rtc (Edge) 직접 접근
-  URL: http://{edge_ip}:1984/stream/{camera_id}
+Frontend → go2rtc (Edge) 직접 접근 (iframe)
+  URL: http://{edge_ip}:1984/stream.html?src={stream_source}
 
-조건: Frontend가 Edge IP에 직접 접근 가능한 네트워크 구성
-대안: Backend가 go2rtc URL만 전달, 브라우저가 직접 연결
+예: http://192.168.0.19:1984/stream.html?src=ch1_sub
 ```
+
+- **stream_source**: go2rtc 내부 소스명 (예: `ch1_sub`, `ch2_sub`)
+- **stream_url**: Backend가 `go2rtc_url + /stream.html?src= + stream_source` 조합하여 응답에 포함
+- Frontend는 `camera.stream_url` 또는 `alert.stream_url`을 iframe src로 직접 사용
+- go2rtc가 내부적으로 RTSP → WebRTC/HLS 변환 처리 (Frontend는 iframe만 사용)
+- 조건: Frontend가 Edge IP에 직접 접근 가능한 네트워크 구성 (LAN 또는 VPN)
