@@ -11,7 +11,7 @@
 | 파라미터 | 값 | 설명 |
 |---|---|---|
 | keepalive | 60초 | Mosquitto가 60초 이상 무응답 시 연결 끊음 |
-| clean_session | False | 재연결 시 QoS 1 미수신 메시지 유지 |
+| clean_session | **Edge: False** / **Backend: True** | Edge는 재연결 시 QoS 1 미수신 메시지 유지. Backend는 uvicorn reload 시 client_id 충돌 방지를 위해 True 사용 (client_id에 PID 포함: `pcbang-backend-{pid}`) |
 | reconnect_on_failure | True | 자동 재연결 활성화 |
 | reconnect_delay | 5초 (초기) / 최대 60초 (지수 백오프) | 재연결 간격 |
 | LWT QoS | 1 | Mosquitto가 offline 메시지 발행 시 QoS |
@@ -105,8 +105,9 @@ pcbang/{store_id}/relays/{ha_entity_id}/set           # 릴레이 제어 명령
 ### Entity 상태 변화 (모니터링 대상만)
 **Topic**: `pcbang/{store_id}/entities/{ha_entity_id}/state` | retain: true
 ```json
-{ "store_id": 30584, "ha_entity_id": "binary_sensor.door_entrance", "state": "open", "timestamp": "..." }
+{ "store_id": 30584, "ha_entity_id": "binary_sensor.door_entrance", "state": "on", "timestamp": "..." }
 ```
+> HA binary_sensor 상태값은 `"on"` / `"off"` 사용 (`"open"` / `"closed"` 아님)
 
 ### 릴레이 제어
 **Command** (Backend → Edge): `pcbang/{store_id}/relays/{ha_entity_id}/set` | retain: false

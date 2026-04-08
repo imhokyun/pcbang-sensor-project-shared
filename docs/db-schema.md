@@ -98,7 +98,7 @@ CREATE INDEX idx_sensor_events_time  ON sensor_events(occurred_at);
 ```sql
 CREATE TABLE alert_events (
   id              SERIAL PRIMARY KEY,
-  store_id        TEXT NOT NULL,
+  store_id        INTEGER NOT NULL,  -- stores.store_id (숫자형 매장 ID)
   ha_entity_id    TEXT NOT NULL,
   type_name       TEXT,            -- 이벤트 시점 타입명 스냅샷
   custom_name     TEXT,            -- 이벤트 시점 명칭 스냅샷
@@ -106,6 +106,7 @@ CREATE TABLE alert_events (
   state_to        TEXT NOT NULL,
   stream_url      TEXT,            -- 발생 시점 go2rtc stream URL 스냅샷
   importance      INTEGER,         -- 발생 시점 매장 중요도 스냅샷
+  is_in_schedule  INTEGER DEFAULT NULL,  -- 1=관제시간 내, 0=관제시간 외, NULL=미판단
   acknowledged_by INTEGER DEFAULT NULL REFERENCES users(id),  -- NULL = 미확인
   acknowledged_at TIMESTAMPTZ DEFAULT NULL,                   -- NULL = 미확인
   occurred_at     TIMESTAMPTZ DEFAULT NOW()
@@ -125,8 +126,9 @@ CREATE TABLE alert_triggers (
   is_active   INTEGER DEFAULT 1
 );
 -- 초기값 (출입문/냉장고 열림):
--- INSERT INTO alert_triggers(type_id, state_from, state_to) VALUES (1, 'closed', 'open'); -- 출입문
--- INSERT INTO alert_triggers(type_id, state_from, state_to) VALUES (2, 'closed', 'open'); -- 냉장고
+-- HA binary_sensor 상태값은 "on"/"off" (open/closed 아님)
+-- INSERT INTO alert_triggers(type_id, state_from, state_to) VALUES (1, 'off', 'on'); -- 출입문
+-- INSERT INTO alert_triggers(type_id, state_from, state_to) VALUES (2, 'off', 'on'); -- 냉장고
 ```
 
 ### monitoring_schedules
@@ -134,7 +136,7 @@ CREATE TABLE alert_triggers (
 ```sql
 CREATE TABLE monitoring_schedules (
   id          SERIAL PRIMARY KEY,
-  store_id    TEXT NOT NULL REFERENCES stores(store_id),
+  store_id    INTEGER NOT NULL REFERENCES stores(store_id),
   day_of_week INTEGER NOT NULL,  -- 0=월 1=화 2=수 3=목 4=금 5=토 6=일
   start_time  TEXT NOT NULL,     -- "HH:MM"
   end_time    TEXT NOT NULL,     -- "HH:MM" — end < start 이면 익일까지
@@ -146,6 +148,8 @@ CREATE TABLE monitoring_schedules (
 ```
 > **알림 활성 판단 우선순위**: `stores.force_alert` → `monitoring_schedules` 스케줄
 > **자정 넘김**: `end_time < start_time` 이면 익일 end_time까지
+> **시프트 기준**: 22:00 이후는 다음 날 시프트로 간주 (예: 일요일 23:00 → day_of_week=0(월) 스케줄 적용)
+> 즉 "월" 스케줄 = 일요일 22:00 ~ 월요일 21:59, "화" 스케줄 = 월요일 22:00 ~ 화요일 21:59
 
 ### mqtt_credentials
 ```sql

@@ -81,11 +81,13 @@ Base URL: `http://backend:8080/api/v1`
 
 **POST /stores/{store_id}/entities request body:**
 ```json
-{ "ha_entity_id": "binary_sensor.door_01", "entity_kind": "sensor", "custom_name": "출입구 도어", "type_id": 1, "triggers_alert": 1 }
+{ "ha_entity_id": "binary_sensor.door_01", "entity_kind": "sensor", "custom_name": "출입구 도어", "type_id": 1, "triggers_alert": 1, "camera_channel": 1 }
 ```
+> `camera_channel`: 연결할 카메라 채널 번호 (NULL=미연결). alert 발생 시 해당 채널 stream_url 자동 포함.
+
 **PUT /stores/{store_id}/entities/{ha_entity_id} request body** (부분 수정):
 ```json
-{ "custom_name": "메인 도어", "type_id": 1, "triggers_alert": 1 }
+{ "custom_name": "메인 도어", "type_id": 1, "triggers_alert": 1, "camera_channel": 1 }
 ```
 
 ### Entity Types
@@ -133,7 +135,7 @@ Base URL: `http://backend:8080/api/v1`
 {
   "success": true,
   "data": {
-    "items": [ { "id": 1, "store_id": "store_001", "store_name": "강남점", "ha_entity_id": "...", "custom_name": "출입구 도어", "type_name": "출입문", "state_from": "closed", "state_to": "open", "occurred_at": "2026-04-06T22:05:00Z" } ],
+    "items": [ { "id": 1, "store_id": 30584, "store_name": "강남점", "ha_entity_id": "binary_sensor.door_01", "custom_name": "출입구 도어", "type_name": "출입문", "state_from": "off", "state_to": "on", "occurred_at": "2026-04-06T22:05:00Z" } ],
     "total_count": 1024,
     "page": 1,
     "limit": 50,
@@ -210,11 +212,11 @@ Base URL: `http://backend:8080/api/v1`
 ```json
 {
   "type": "entity.update",
-  "store_id": "store_001",
+  "store_id": 30584,
   "ha_entity_id": "binary_sensor.door_01",
   "custom_name": "출입구 도어",
   "type_name": "출입문",
-  "state": "open",
+  "state": "on",
   "timestamp": "2026-04-06T22:05:00Z"
 }
 ```
@@ -224,19 +226,24 @@ Base URL: `http://backend:8080/api/v1`
 {
   "type": "alert.new",
   "alert_id": 42,
-  "store_id": "store_001",
+  "store_id": 30584,
   "store_name": "강남점",
   "importance": 4,
   "ha_entity_id": "binary_sensor.door_01",
+  "entity_name": "출입구 도어",
   "custom_name": "출입구 도어",
   "type_name": "출입문",
-  "state_from": "closed",
-  "state_to": "open",
-  "stream_url": "http://1.2.3.4:1984/stream/store_001_ch01",
+  "message": "출입구 도어 on",
+  "state_from": "off",
+  "state_to": "on",
+  "stream_url": "http://1.2.3.4:1984/stream.html?src=ch1_sub",
   "is_in_schedule": true,
   "timestamp": "2026-04-06T22:05:00Z"
 }
 ```
+> `store_id`: 정수형 매장 ID (예: 30584)
+> `entity_name`: `custom_name` 우선, 없으면 `ha_entity_id`
+> `message`: `"{entity_name} {state_to}"` 형식의 사람이 읽기 좋은 알림 메시지
 > `is_in_schedule`: `force_alert` 및 `monitoring_schedules` 기준 Backend 판단 결과.
 > Frontend는 `is_in_schedule=true` 인 경우에만 소리 알림 재생. 화면 표시는 항상.
 
