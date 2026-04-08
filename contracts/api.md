@@ -34,11 +34,31 @@ Base URL: `http://backend:8080/api/v1`
 ### Stores
 | Method | Path | 설명 |
 |---|---|---|
-| GET | /stores | 전체 매장 목록 + 온라인 상태 + 중요도 |
+| GET | /stores | 매장 목록 (검색·페이지네이션 지원, B1-BE 완료 후 응답형식 변경) |
 | GET | /stores/{store_id} | 매장 상세 |
 | POST | /stores | 매장 등록 |
 | PUT | /stores/{store_id} | 매장 정보 수정 (name, address, device_sn, importance, force_alert) |
 | DELETE | /stores/{store_id} | 매장 삭제 |
+
+**GET /stores query params** (B1-BE 완료 후 적용):
+- `q`: 매장명/주소 검색 (ILIKE)
+- `page`: 페이지 번호 (기본 1)
+- `limit`: 페이지 크기 (기본 100, 최대 100)
+
+**GET /stores response** (B1-BE 완료 후 형식 변경):
+```json
+{
+  "success": true,
+  "data": {
+    "items": [ /* Store[] */ ],
+    "total": 15,
+    "page": 1,
+    "total_pages": 1
+  }
+}
+```
+> B1-BE 완료 전: `"data": Store[]` 형식 유지.
+> B1-BE 완료 후: `"data": { items, total, page, total_pages }` 형식으로 변경.
 
 **POST /stores request body:**
 ```json
