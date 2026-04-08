@@ -7,7 +7,7 @@
 │                     중앙 서버                            │
 │                                                         │
 │   ┌──────────────┐        ┌─────────────────────┐      │
-│   │  Mosquitto   │◄──────►│   FastAPI Backend   │      │
+│   │    EMQX      │◄──────►│   FastAPI Backend   │      │
 │   │ (MQTT Broker)│  sub   │  + WebSocket Server │      │
 │   └──────────────┘        └──────────┬──────────┘      │
 │          ▲                           │ WS / REST        │
@@ -40,7 +40,7 @@
 | Edge OS | Home Assistant OS | RP4 전용 이미지 |
 | Edge Integration | Python (HA Custom Component) | GPIO → MQTT |
 | Edge Stream | go2rtc | RTSP → WebRTC/HLS |
-| MQTT Broker | Eclipse Mosquitto | 중앙 서버, TLS 권장 |
+| MQTT Broker | EMQX Community 5.8.9 | 중앙 서버, PostgreSQL 직접 인증 |
 | Backend API | FastAPI (Python) | MQTT subscriber + REST + WS |
 | Database | PostgreSQL (Docker) | 이벤트 이력, MQTT 인증 |
 | Frontend | Next.js (React) | App Router |
@@ -50,7 +50,7 @@
 
 | 서비스 | 포트 | 프로토콜 |
 |---|---|---|
-| Mosquitto | 1883 (내부) / 8883 (TLS) | MQTT |
+| EMQX | 1883 (내부, Backend 전용) / 8883 (Edge 인증) / 18083 (Dashboard) | MQTT |
 | FastAPI | 8080 | HTTP/WS |
 | Next.js | 3000 | HTTP |
 | go2rtc API | 1984 | HTTP |
