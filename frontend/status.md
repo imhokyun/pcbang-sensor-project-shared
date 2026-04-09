@@ -7,6 +7,7 @@ _업데이트: 2026-04-09 | 브랜치: dev/frontend_
 
 ## 📥 request/ — 검토 대기
 - `from_orchestrator_qa_mode_20260409.md` — 운영 환경 셋업 QA 모드 전환 지시
+- `from_backend_20260409_ws_env.md` — WebSocket URL 환경변수 미설정 → .env 생성 + 재빌드 필요
 
 ## 🔴 todo/ — 진행중
 (없음 — 새 작업 배분 시 여기에 추가됨)
