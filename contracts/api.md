@@ -113,18 +113,29 @@ Base URL: `http://backend:8080/api/v1`
 ### Entity Types
 | Method | Path | 설명 |
 |---|---|---|
-| GET | /entity-types | 전체 타입 목록 (기본 + 사용자 추가) |
+| GET | /entity-types | 전체 타입 목록 (임계값 없음, 타입 선택용) |
 | POST | /entity-types | 사용자 정의 타입 추가 |
-| PUT | /entity-types/{id} | 장시간 개방 임계값 수정 |
 | DELETE | /entity-types/{id} | 사용자 정의 타입 삭제 (기본값 삭제 불가) |
+| GET | /stores/{store_id}/entity-types | 매장별 타입 목록 + 장시간 개방 임계값 |
+| PUT | /stores/{store_id}/entity-types/{type_id} | 매장별 장시간 개방 임계값 수정 |
 
-#### PUT /entity-types/{id} 요청/응답
+#### GET /entity-types 응답
+```json
+{ "id": 1, "name": "출입문", "is_default": 1 }
+```
+
+#### GET /stores/{store_id}/entity-types 응답
+```json
+{ "id": 1, "name": "출입문", "is_default": 1, "threshold_minutes": 30.0 }
+```
+
+#### PUT /stores/{store_id}/entity-types/{type_id} 요청/응답
 ```json
 // Request
 { "threshold_minutes": 30 }   // number | null (null 시 기본값 5분으로 초기화)
 
 // Response
-{ "id": 1, "name": "출입문", "is_default": 1, "threshold_minutes": 30.0 }
+{ "success": true, "data": { "id": 1, "name": "출입문", "is_default": 1, "threshold_minutes": 30.0 } }
 ```
 
 ### Relays (switch entity 제어)
