@@ -115,7 +115,17 @@ Base URL: `http://backend:8080/api/v1`
 |---|---|---|
 | GET | /entity-types | 전체 타입 목록 (기본 + 사용자 추가) |
 | POST | /entity-types | 사용자 정의 타입 추가 |
+| PUT | /entity-types/{id} | 장시간 개방 임계값 수정 |
 | DELETE | /entity-types/{id} | 사용자 정의 타입 삭제 (기본값 삭제 불가) |
+
+#### PUT /entity-types/{id} 요청/응답
+```json
+// Request
+{ "threshold_minutes": 30 }   // number | null (null 시 기본값 5분으로 초기화)
+
+// Response
+{ "id": 1, "name": "출입문", "is_default": 1, "threshold_minutes": 30.0 }
+```
 
 ### Relays (switch entity 제어)
 | Method | Path | 설명 |
