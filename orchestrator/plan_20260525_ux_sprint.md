@@ -11,7 +11,8 @@
 | Phase | Task | 비고 |
 |---|---|---|
 | **Phase 1 — 즉시 UX 효과** | T1 시인성, T2 카테고리 필터, T3 중요도, T4a 온·오프라인, T6 일괄확인 | 이번 스프린트. DB 모델 변경 없음. WS 페이로드 확장만. |
-| **Phase 2 — 모델·외부연동** | T4b 보관 워크플로우, T5 CTRL 양방향 | 다음 스프린트. 신규 `alert_archives` 테이블, 외부 webhook. Phase 1 운영 피드백 후 진행. |
+| **Phase 2 — 보관 워크플로우** | T4b 보관(처리중) + 메모 + 완료 + 보관로그 | 다음 스프린트. 신규 `alert_archives` 테이블. Phase 1 운영 피드백 후 진행. |
+| ~~T5 CTRL 양방향 연동~~ | **이번 스프린트 제외** | 사용자 명시 제외. 외부 시스템 정합성 협의 선행 필요. NOT in scope 섹션에 별도 정리. |
 
 **이 review의 락인 대상은 Phase 1.** Phase 2 항목은 1 완료 후 별도 `/plan-eng-review` 라운드를 거친다.
 
@@ -226,15 +227,231 @@ alembic revision 1개:
 
 ---
 
-## 4-1. plan-eng-review 락인 결정사항 (Phase 1 한정)
+## 4-1. plan-eng-review 락인 결정사항 (Phase 1)
 
-진행 중인 review에서 확정된 항목 — 본 review가 완료되면 정식 review report로 대체된다.
+- **Scope**: Phase 1만 (T1·T2·T3·T4a·T6). Phase 2는 T4b만, T5 CTRL 연동은 이번 스프린트 제외.
+- **A1 (arch)**: T2 카테고리 식별자 `type_id`. `alert.new` WS 페이로드에 `type_id` 추가. `type_name`은 이미 포함.
+- **A2 (arch)**: T6 일괄확인 body에 `ids` 또는 (`store_id` | `type_id`) 최소 하나 필수. 빈 body 400. 프론트는 현재 필터(카테고리·매장)를 자동 전달.
+- **A3 (arch)**: T2 프론트는 search param 기반 탭/칩 (`/?cat=<type_id>`). 별도 라우트 X.
+- **C1 (code)**: T1은 `globals.css` 토큰 갱신만 (`--text-muted` 짙은 톤, 신규 폰트 사이즈 토큰). DESIGN.md Decisions Log에 "Dead-state 카드 원칙 완화 — 사용자 요청으로 온라인도 본문 가독성 우선" 명시. 컴포넌트 인라인 색 변경 금지.
+- **C2 (code)**: `app/services/alert_ack.py:ack_alerts(db, ids, user) -> [acknowledged_ids]` 신규 service. `WHERE acknowledged_by IS NULL` 가드 포함. 단일 라우터(`acknowledge_alert`) + 일괄 라우터(`acknowledge_alerts_bulk`) 둘 다 이 service 호출. WS broadcast도 공통화.
+- **T (test)**: Backend `tests/test_alerts.py` 신규 (단일·일괄·필터·가드 커버). Frontend는 이번에 jest infra 도입 X — `/qa` 스킬 + agent-browser 수동 시나리오로 회귀 검증. F-TEST-INFRA는 별도 후속.
 
-- **Scope**: Phase 1만 락인 (T1·T2·T3·T4a·T6). Phase 2(T4b·T5)는 별도 라운드.
-- **Architecture A1**: T2 카테고리 필터 식별자는 `type_id`. `alert.new` WS 페이로드에 `type_id` 추가 (`type_name`은 이미 포함).
-- **Architecture A2**: T6 일괄확인은 body에 `ids` 또는 (`store_id` | `type_id`) 최소 하나 필수. 빈 body 400. 프론트는 현재 필터 상태(카테고리/매장)를 자동 전달.
-- **Architecture A3**: T2 프론트는 search param 기반 탭/칩 (`/?cat=fridge`). 별도 라우트 X.
-- **Code Quality C1**: T1은 `globals.css` 토큰 갱신 (`--text-muted`→짙은 톤, 신규 폰트 사이즈 토큰). DESIGN.md Decisions Log에 "Dead-state 카드 원칙 완화 — 사용자 요청으로 온라인도 본문 가독성 우선" 명시. 컴포넌트 인라인 수정 금지.
+---
+
+## 4-2. Test review — Phase 1 coverage 다이어그램
+
+```
+[+] backend/app/routers/alerts.py
+  ├── list_alerts (변경: type_id 쿼리)
+  │   ├── [GAP] type_id=None → 전체 미확인 반환
+  │   ├── [GAP] type_id=N → 해당 카테고리만
+  │   └── [GAP] type_id=999(존재하지 않음) → 빈 배열
+  ├── acknowledge_alert (변경: service 위임 + IS NULL 가드)
+  │   ├── [GAP] (REGRESSION) 이미 ack된 alert에 또 ack → 무시
+  │   ├── [GAP] 존재하지 않는 alert_id → 404
+  │   └── [GAP] WS alert.acknowledged 발사
+  └── acknowledge_alerts_bulk (신규)
+      ├── [GAP] body {ids:[1,2,3]} → 3건 ack, batch WS 1회
+      ├── [GAP] body {store_id: X} → 해당 매장 미확인 ack
+      ├── [GAP] body {type_id: Y} → 해당 type 미확인 ack
+      ├── [GAP] body {store_id: X, type_id: Y} → AND 필터
+      ├── [GAP] body {} (빈) → 400
+      ├── [GAP] ids에 이미 ack 포함 → IS NULL 가드로 자동 제외
+      └── [GAP] WS alert.acknowledged_batch 단일 메시지 (ids 배열)
+
+[+] backend/app/services/alert_ack.py (신규)
+  └── ack_alerts(db, ids, user) -> acknowledged_ids
+      ├── [GAP] 동시 ack 시뮬레이션 (같은 alert 두 트랜잭션) → 한쪽만 성공
+      └── [GAP] 빈 ids → 빈 반환
+
+[+] backend/app/services/event_processor.py (변경: type_id WS payload)
+  └── [GAP] 회귀 — alert.new payload에 type_id 포함 (type_name은 기존)
+
+USER FLOWS (수동 QA / agent-browser 시나리오)
+  ├── [→QA] 시인성: 메인 카드·모달의 폰트/색 변경 시각 검증 (DESIGN.md 토큰)
+  ├── [→QA] 카테고리 필터: 칩 클릭 → URL ?cat=N → 해당 알림만 → 새 알림 도착 시 카테고리 일치 여부에 따른 표시
+  ├── [→QA] 일괄확인: 100건 미확인 상태에서 일괄확인 → 확인 다이얼로그 → N건 사라짐 → 다른 클라(2탭)도 동기화
+  ├── [→QA] (REGRESSION) 단일 ack: VideoPopup [✓확인] → 1건 사라짐 → 다른 클라 동기화
+  ├── [→QA] 매장명 옆 중요도 별표(또는 숫자) 표시
+  ├── [→QA] (REGRESSION) 매장 그리드 온/오프라인 — 보더 색 변경, 90초 timeout 동작 유지
+  └── [→QA] (REGRESSION) DESIGN.md Decisions Log 갱신 후 다른 화면 위화감 없는지
+
+COVERAGE: backend 13개 path 중 0건 자동 테스트 → 본 plan으로 13/13 추가
+QUALITY: ★★★(behavior+edge+error) 목표 — 모든 GAP를 ★★★로 끌어올림
+REGRESSION: 단일 ack + alert.new payload + 매장 온오프라인 — 명시 회귀 테스트 / 수동 시나리오 보유
+```
+
+### Test plan artifact (별도 파일은 안 만들고 본 plan에 통합)
+
+- backend 신규: `backend/tests/test_alerts.py`
+  - 시나리오: list / 단일 ack / 일괄 ack / IS NULL 가드 / batch WS broadcast / body validation
+- backend 회귀: `backend/tests/test_websocket.py` 확장 — `alert.new` payload에 `type_id` 검증
+- frontend 수동 QA: 위 [→QA] 시나리오 7개를 `/qa` 스킬로 1회 + agent-browser 스크린샷 before/after
+
+---
+
+## 4-3. Performance review
+
+No issues, moving on.
+
+근거:
+- `GET /alerts` 는 미확인 알림만(`acknowledged_by IS NULL`) 조회 — 정상 운영 시 수십~수백 건. type_id 필터 추가는 인덱스 영향 미미.
+- 일괄 ack: 단일 `UPDATE ... WHERE id IN (...) AND acknowledged_by IS NULL` — DB가 처리. 100건도 < 50ms.
+- WS batch broadcast: 메시지 1개에 ids 배열 (≤1KB), 5 클라이언트 × 1 = 5번 send. 부담 없음.
+- 카테고리 필터 클라이언트 사이드 `.filter()` — 수백 건 데이터셋에 무시 가능.
+
+---
+
+## 4-4. What already exists
+
+이번 plan이 새로 만들 필요 없는 기반:
+
+| 기반 | 위치 | 활용 |
+|---|---|---|
+| `entity_types` 테이블 (id, name) | `backend/app/models/entity_types.py` | T2 카테고리 식별자 (type_id) 그대로 사용 |
+| `store_entities.type_id` FK | `backend/app/models/store_entities.py:17` | alert 생성 시 entity → type_id 추적 |
+| `alert_events.type_id`, `type_name` | `backend/app/models/alert_events.py` | T2 필터 컬럼 이미 존재 |
+| `alert.new` WS의 `type_name` | `backend/app/services/event_processor.py:170` | T2 라벨용 — 그대로 사용 |
+| `acknowledge_alert` 라우터 | `backend/app/routers/alerts.py:27` | C2 service로 위임 형태로 리팩터 |
+| `StoreGrid.tsx` 별표 패턴 | `frontend/components/StoreGrid.tsx:113-116` | T3에 동일 패턴 재사용 |
+| `useWebSocket` 훅 | `frontend/hooks/useWebSocket.ts` | 신규 `alert.acknowledged_batch` 핸들러만 추가 |
+| `DESIGN.md` 토큰 시스템 | `frontend/DESIGN.md`, `app/globals.css` | T1 토큰 갱신 — 토큰 자체는 이미 있음 |
+| `monitoring_schedules` + `is_in_schedule` 로직 | `backend/app/services/event_processor.py`, `models/monitoring_schedules.py` | 변경 없이 그대로 |
+
+---
+
+## 4-5. NOT in scope (명시적 deferral)
+
+| 항목 | 사유 |
+|---|---|
+| T5 CTRL서버 양방향 연동 | 사용자 명시 제외. 외부 시스템 정합성·source-of-truth 협의 선행 필요. 별도 office-hours/plan 라운드 후 진행. |
+| T4b 보관(처리중) 워크플로우 + 메모 + 보관로그 | Phase 2. 신규 `alert_archives` 테이블 + UX 결정(archive와 ack 관계, 메모 수정 등) 미결. |
+| Frontend Jest/RTL/Playwright infra 도입 | F-TEST-INFRA로 분리. Phase 1은 수동 QA로 진행. infra는 다음 스프린트에서 한 번에. |
+| 카테고리별 미수신 알림 배지 카운트 | T2 부속 옵션. 이번엔 active 카테고리 표시만, 다른 카테고리 카운트는 별도. |
+| 알림음 시스템 자체 개편 | T1은 시각 시인성만, 소리는 그대로. |
+| 보관로그 검색·필터 고도화 | T4b 1차는 매장·기간 단순 필터까지. |
+| entity_types CRUD 관리 UI 개편 | 이번 스프린트 외. |
+
+---
+
+## 4-6. Implementation Tasks (build-actionable)
+
+이번 라운드 P1(=Phase 1 필수). 각 task는 backend / frontend 워크트리로 분배.
+
+- [ ] **T1-FE (P1, human: ~3h / CC: ~30min)** — frontend — 토큰 갱신 + DESIGN.md Decisions Log
+  - Files: `frontend/app/globals.css`, `frontend/DESIGN.md`, (변경 X) `components/StoreGrid.tsx`·`AlertList.tsx`·`VideoPopup.tsx`
+  - Verify: agent-browser 스크린샷 before/after, 24인치 모니터 가독성
+- [ ] **T2-BE (P1, human: ~1h / CC: ~10min)** — backend — `GET /alerts?type_id=N` + `alert.new` payload에 `type_id` 추가
+  - Files: `backend/app/routers/alerts.py:list_alerts`, `backend/app/services/event_processor.py:170`, `backend/app/schemas/alerts.py`
+  - Verify: `uv run pytest tests/test_alerts.py` (해당 테스트 신규 작성)
+- [ ] **T2-FE (P1, human: ~4h / CC: ~30min)** — frontend — CategoryFilter 신규, search param 라우팅, AlertList 필터링
+  - Files: `frontend/components/CategoryFilter.tsx`(신규), `frontend/app/page.tsx`, `frontend/components/AlertList.tsx`, `frontend/hooks/useWebSocket.ts`, `frontend/lib/types.ts`
+  - Verify: agent-browser — 카테고리 칩 클릭, URL 변경, 알림 필터링
+- [ ] **T3-FE (P1, human: ~30min / CC: ~5min)** — frontend — 알림 행 매장명 옆 중요도 표시
+  - Files: `frontend/components/AlertList.tsx`
+  - Verify: 시각 확인
+- [ ] **T4a-FE (P1, human: ~1h / CC: ~10min)** — frontend — 매장 카드 온/오프라인 좌측 보더 강조
+  - Files: `frontend/components/StoreGrid.tsx`, `frontend/app/globals.css`
+  - Verify: heartbeat 90초 timeout 동작 유지 + 시각 확인
+- [ ] **T6-BE (P1, human: ~3h / CC: ~25min)** — backend — `ack_alerts` service + `acknowledge_alerts_bulk` 라우터 + batch WS
+  - Files: `backend/app/services/alert_ack.py`(신규), `backend/app/routers/alerts.py` (refactor + 신규 endpoint), `backend/app/websocket.py` (broadcast batch helper), `backend/tests/test_alerts.py`(신규)
+  - Verify: `uv run pytest tests/test_alerts.py -v`
+- [ ] **T6-FE (P1, human: ~2h / CC: ~20min)** — frontend — 일괄확인 버튼 + 다이얼로그 + WS batch 핸들러
+  - Files: `frontend/components/AlertList.tsx`, `frontend/hooks/useWebSocket.ts`, `frontend/lib/api.ts`(필요 시), `frontend/lib/types.ts`
+  - Verify: agent-browser — 일괄확인 다이얼로그 → N건 사라짐 → 2탭 동기화
+- [ ] **CONTRACT (P1, human: ~30min / CC: ~10min)** — orchestrator — 계약 문서 갱신
+  - Files: `shared/contracts/api.md` (`GET /alerts?type_id`, `POST /alerts/acknowledge-all`, WS `alert.acknowledged_batch`, `alert.new`에 `type_id`)
+  - Verify: backend/frontend 양쪽 팀 inbox에 통지
+
+### 의존성
+
+```
+CONTRACT  ─┬─▶ T2-BE ─┐
+           ├─▶ T6-BE ─┤
+           │           ├─▶ T2-FE
+           │           ├─▶ T6-FE
+           └─▶ T1-FE ─┴─▶ T3-FE ─▶ T4a-FE
+```
+
+CONTRACT 락인 후 BE·FE 두 레인이 진짜 병렬. UI 작업은 토큰 갱신(T1-FE) 이후 시각 작업이 차례.
+
+---
+
+## 4-7. Worktree parallelization
+
+| Lane | 워크트리 | Task 순서 | 공유 모듈 |
+|---|---|---|---|
+| A (orchestrator) | `pcbang-sensor-project/` | CONTRACT → review·통지 | `shared/contracts/api.md` |
+| B (backend) | `pcbang-sensor-backend/` | T2-BE → T6-BE | `backend/app/routers/alerts.py`, `services/`, `tests/test_alerts.py` |
+| C (frontend) | `pcbang-sensor-frontend/` | T1-FE → T3-FE → T4a-FE → T2-FE → T6-FE | `frontend/app/`, `components/`, `hooks/`, `lib/`, `globals.css`, `DESIGN.md` |
+
+A는 B·C 시작 직전 1회만 작업. B·C는 CONTRACT 후 완전 병렬.
+
+**충돌 위험**:
+- `shared/contracts/api.md` 와 `shared/{팀}/status.md` 는 오케스트레이터가 중앙화 → push race 차단.
+- B·C는 다른 워크트리·다른 파일군 → 머지 충돌 없음.
+
+---
+
+## 4-8. Failure modes (운영 안전)
+
+| 코드패스 | 한 가지 현실 실패 | 테스트 | 에러 핸들링 | 사용자에게 보이는 메시지 |
+|---|---|---|---|---|
+| `ack_alerts` 동시성 | 두 admin이 같은 alert에 동시 ack | `tests/test_alerts.py` IS NULL 가드 케이스 | UPDATE row-lock + IS NULL 자연 가드 | 한쪽 ack count = 0 — UI는 이미 사라진 상태로 일관됨 |
+| `acknowledge_alerts_bulk` body validation | 빈 body 또는 ids = [] | `tests/test_alerts.py` 400 케이스 | 400 + `{code:"INVALID_BODY"}` | 다이얼로그가 "필터 조건 없음" 표시 |
+| `alert.acknowledged_batch` WS broadcast | broadcast 도중 일부 클라 disconnect | (수동) 2탭에서 1탭 닫고 일괄확인 | manager.broadcast는 dead conn 무시 | 살아있는 클라만 동기화 |
+| 카테고리 필터 — type_name 미사용 시 라벨 누락 | entity_types name이 빈 문자열 | (백엔드 시드) | UI에서 빈 라벨 시 "(미분류)" fallback | "(미분류)" 칩 |
+| T1 토큰 변경 후 다른 화면 위화감 | 로그 페이지·매장 관리에서 회색 의도된 곳까지 검정으로 | (수동 QA 시나리오) | DESIGN.md Decisions Log에 영향 범위 명시 | 시각적 회귀 |
+
+**Critical gap**: 없음. 모든 신규 path는 backend 자동 테스트 또는 수동 QA로 커버 예정.
+
+---
+
+## 5. 위험 / 미결 (review 후 해소됨)
+
+검토 라운드 종료. 다음 항목은 모두 4-1 락인 또는 4-5 NOT in scope로 정리:
+
+- ~~T2 A안/B안~~ → A3 락인 (search param 탭)
+- ~~T4b archive vs ack 관계~~ → Phase 2 별도 라운드
+- ~~T4b status enum~~ → Phase 2 별도 라운드
+- ~~T5 source of truth~~ → 4-5 NOT in scope (이번 제외)
+- ~~T6 중요도≥4 차단 옵션~~ → 차단 X, 단순 일괄. 운영 피드백으로 후속 결정
+- ~~T4b broadcast~~ → Phase 2 별도 라운드
+- ~~T1 vs Dead-state 원칙 충돌~~ → C1 락인 (사용자 가독성 우선)
+
+## 6. 테스트 커버리지 목표 (4-2 결과 반영)
+
+- Backend `tests/test_alerts.py` — 13개 시나리오 ★★★ 목표
+- Backend `tests/test_websocket.py` — `alert.new` payload type_id 회귀 추가
+- Frontend `/qa` 스킬 + agent-browser — 7개 시나리오 (시인성·카테고리·일괄확인·단일 ack 회귀·중요도·온오프라인·DESIGN.md 회귀)
+
+## 7. 후속 TODO 제안 (이번 스프린트 외)
+
+다음 plan-eng-review 라운드 또는 TODO 목록에 추가:
+
+- **T5-EXT**: CTRL서버 양방향 연동 (사용자 명시 제외 — 외부 시스템 정합성 협의 후)
+- **T4b-ARCHIVE**: 보관(처리중) 워크플로우 + 메모 + 완료 + 보관로그 (Phase 2 별도 라운드)
+- **F-TEST-INFRA**: Frontend Jest + RTL + Playwright setup
+- **T2-CATEGORY-BADGE**: 비활성 카테고리에 미수신 알림 카운트 배지
+- **T1-SOUND**: 중요도 4·5 강조 알림음 재검토 (기존 A3 완료지만 시인성 변경과 함께 톤 점검)
+- **CTRL-SERVER-CONFIG**: CTRL서버 연동을 위한 webhook secret·재시도 큐 설계
+
+---
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | not run |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | not run (skipped by user) |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR (PLAN) | 6 issues, 0 critical gaps |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | not run |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | n/a (no developer-facing surface) |
+
+- **UNRESOLVED**: 0 (all decisions locked in §4-1 or deferred to §4-5/§7)
+- **VERDICT**: ENG CLEARED — ready to implement Phase 1 (T1·T2·T3·T4a·T6). Phase 2(T4b) requires a separate /plan-eng-review round. T5 CTRL is excluded by user.
+
 
 ## 5. 위험 / 미결 (review에서 결정 필요)
 
