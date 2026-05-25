@@ -161,8 +161,27 @@ Base URL: `http://backend:8080/api/v1`
 ### Alerts
 | Method | Path | 설명 |
 |---|---|---|
-| GET | /alerts | 미확인 알림 목록 (전체 매장) |
-| POST | /alerts/{alert_id}/acknowledge | 알림 확인 처리 → WS 브로드캐스트 |
+| GET | /alerts | 미확인 알림 목록 (전체 매장, `type_id` 필터 지원) |
+| POST | /alerts/{alert_id}/acknowledge | 단일 알림 확인 처리 → WS `alert.acknowledged` |
+| POST | /alerts/acknowledge-all | 일괄 확인 처리 → WS `alert.acknowledged_batch` |
+
+**GET /alerts query params**:
+- `type_id` (선택): `entity_types.id`. 지정 시 해당 카테고리만 반환. 미지정 시 전체 미확인 알림.
+
+**POST /alerts/acknowledge-all request body** (셋 중 최소 하나 필수 — 빈 body는 400):
+```json
+{ "ids": [1, 2, 3] }                 // 명시적 ID 배열
+{ "store_id": 30584 }                // 해당 매장의 미확인 전체
+{ "type_id": 3 }                     // 해당 카테고리의 미확인 전체
+{ "store_id": 30584, "type_id": 3 }  // AND 필터
+```
+
+**response**:
+```json
+{ "success": true, "data": { "acknowledged_count": 12, "acknowledged_ids": [1, 2, ..., 12] } }
+```
+> 이미 확인된 알림은 `acknowledged_by IS NULL` 가드로 자동 제외 — 동시 호출 안전.
+> `400 INVALID_BODY`: body가 비었거나 모든 필터가 비었을 때.
 
 ### Logs
 | Method | Path | 설명 |
@@ -273,6 +292,7 @@ Base URL: `http://backend:8080/api/v1`
   "ha_entity_id": "binary_sensor.door_01",
   "entity_name": "출입구 도어",
   "custom_name": "출입구 도어",
+  "type_id": 1,
   "type_name": "출입문",
   "message": "출입구 도어 on",
   "state_from": "off",
@@ -283,6 +303,7 @@ Base URL: `http://backend:8080/api/v1`
 }
 ```
 > `store_id`: 정수형 매장 ID (예: 30584)
+> `type_id`: `entity_types.id` — Frontend 카테고리 필터의 식별자. `type_id IS NULL` 알림은 (`entity.type_id` 미설정) 발생하지 않음 (alert_triggers 매칭 불가).
 > `entity_name`: `custom_name` 우선, 없으면 `ha_entity_id`
 > `message`: `"{entity_name} {state_to}"` 형식의 사람이 읽기 좋은 알림 메시지
 > `is_in_schedule`: `force_alert` 및 `monitoring_schedules` 기준 Backend 판단 결과.
@@ -297,6 +318,18 @@ Base URL: `http://backend:8080/api/v1`
   "acknowledged_at": "2026-04-06T22:05:30Z"
 }
 ```
+
+### 알림 일괄 확인 브로드캐스트 (일괄확인 → 전원 반영)
+```json
+{
+  "type": "alert.acknowledged_batch",
+  "alert_ids": [1, 2, 3, 12, 18],
+  "acknowledged_by": "admin2",
+  "acknowledged_at": "2026-04-06T22:05:30Z"
+}
+```
+> 단일 메시지에 ack된 ids 배열. Frontend는 한 번에 모두 리스트에서 제거.
+> 이미 확인된 알림은 서버측 IS NULL 가드로 제외되므로 `alert_ids`는 실제로 이번 호출에서 처리된 것만.
 
 ### Edge 상태 변경
 ```json
