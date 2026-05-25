@@ -236,6 +236,10 @@ alembic revision 1개:
 - **C1 (code)**: T1은 `globals.css` 토큰 갱신만 (`--text-muted` 짙은 톤, 신규 폰트 사이즈 토큰). DESIGN.md Decisions Log에 "Dead-state 카드 원칙 완화 — 사용자 요청으로 온라인도 본문 가독성 우선" 명시. 컴포넌트 인라인 색 변경 금지.
 - **C2 (code)**: `app/services/alert_ack.py:ack_alerts(db, ids, user) -> [acknowledged_ids]` 신규 service. `WHERE acknowledged_by IS NULL` 가드 포함. 단일 라우터(`acknowledge_alert`) + 일괄 라우터(`acknowledge_alerts_bulk`) 둘 다 이 service 호출. WS broadcast도 공통화.
 - **T (test)**: Backend `tests/test_alerts.py` 신규 (단일·일괄·필터·가드 커버). Frontend는 이번에 jest infra 도입 X — `/qa` 스킬 + agent-browser 수동 시나리오로 회귀 검증. F-TEST-INFRA는 별도 후속.
+- **M1 (2026-05-25 추가)**: 실제 구현 중 발견 — `alert_events.type_id` 컬럼이 모델에 없음 (§4-4의 사실 오기). drift 우려로 사용자 결정에 따라 마이그레이션 허용:
+  - 새 task `[T2-BE-MIGRATE]` 추가 (#8) — `alert_events.type_id` 컬럼 + 생성 시점 스냅샷 + backfill (`UPDATE alert_events SET type_id = store_entities.type_id ON (store_id, ha_entity_id)`)
+  - T2-BE의 outerjoin 우회는 임시. M1 적용 후 `AlertEvent.type_id` 직접 사용.
+  - §4-5 "DB 모델 변경 없음" 조건 완화: 1건의 컬럼 추가 마이그레이션 허용.
 
 ---
 
@@ -311,7 +315,7 @@ No issues, moving on.
 |---|---|---|
 | `entity_types` 테이블 (id, name) | `backend/app/models/entity_types.py` | T2 카테고리 식별자 (type_id) 그대로 사용 |
 | `store_entities.type_id` FK | `backend/app/models/store_entities.py:17` | alert 생성 시 entity → type_id 추적 |
-| `alert_events.type_id`, `type_name` | `backend/app/models/alert_events.py` | T2 필터 컬럼 이미 존재 |
+| ~~`alert_events.type_id`~~, `type_name` | `backend/app/models/alert_events.py` | **정정 2026-05-25**: `type_id` 컬럼은 모델에 **없음**. T2-BE는 임시 outerjoin 사용. `[T2-BE-MIGRATE]` (#8) 로 컬럼 추가 + backfill 완료 후 직접 사용. `type_name` 컬럼은 있음. |
 | `alert.new` WS의 `type_name` | `backend/app/services/event_processor.py:170` | T2 라벨용 — 그대로 사용 |
 | `acknowledge_alert` 라우터 | `backend/app/routers/alerts.py:27` | C2 service로 위임 형태로 리팩터 |
 | `StoreGrid.tsx` 별표 패턴 | `frontend/components/StoreGrid.tsx:113-116` | T3에 동일 패턴 재사용 |
