@@ -163,13 +163,164 @@ frontend/lib/api.ts                       변경 — syncSchedules({storeId}) �
 
 ---
 
+## plan-eng-review 락인 결정사항
+
+원본 design doc의 5 premises는 office-hours에서 이미 합의. 본 review에서 추가 락인:
+
+- **A1 (architecture)**: CTRL `daySn` (1=일, 2=월, ..., 7=토) ↔ `monitoring_schedules.day_of_week` (0=월, ..., 6=일, Python `weekday()` 표준)은 모델 line 14 + alert.py:30에서 확인됨. `services/ctrl_sync.py` 의 private helper `_ctrl_daysn_to_our_dow(n) = (n + 5) % 7` 로 단일화. `tests/test_ctrl_sync.py` 에 7개 요일 전체 테이블 단위테스트(daySn=1→6, 2→0, 3→1, 4→2, 5→3, 6→4, 7→5) 필수.
+- **C1 (code quality)**: `services/external_poll.py` 는 **DEPRECATED 주석** 추가 후 코드 보존. `routers/schedules.py:sync_schedules` 의 import·호출은 `ctrl_sync.sync_store_schedules(store_id, db)` 로 교체. dead code는 명시적 deprecation marker로 표시.
+
+## Test review — coverage 다이어그램
+
+```
+CODE PATHS                                          USER FLOWS / WEBHOOK
+[+] backend/app/services/ctrl_sync.py (신규)
+  ├── _ctrl_daysn_to_our_dow(n)                     [+] 운영자 수동 동기화
+  │   └── [GAP] 7요일 테이블 (n=1..7 → 우리 dow)        ├── [→QA] /stores/{id} "외부 서버에서 동기화"
+  ├── fetch_store_detail(store_no)                    │            → 성공 토스트(updated_count, skipped_manual)
+  │   ├── [GAP] CTRL 200 → controlTimes 추출           ├── [→QA] 동일 → CTRL 401 → "외부 인증 실패" 토스트
+  │   ├── [GAP] CTRL 401 → ApiError raise              └── [→QA] 동일 → CTRL timeout 10s → 에러 토스트
+  │   └── [GAP] httpx timeout → ApiError raise
+  ├── apply_control_times(db, store_id, control_times) [+] Webhook 자동 동기화
+  │   ├── [GAP] is_manual=0 행 7개 갱신                 ├── [GAP] [→E2E] n8n → POST /webhooks/ctrl/store
+  │   ├── [GAP] is_manual=1 행 보존 (REGRESSION★)       │            (eventType=created) → schedules 7행
+  │   ├── [GAP] 매장(stores row) 미존재 → log + skip   ├── [GAP] [→E2E] eventType=updated → 갱신
+  │   └── [GAP] beginTime="" 미운영 일 → is_active=0   ├── [GAP] [→E2E] eventType=time_updated → 갱신
+  ├── sync_store_schedules(store_id, db)               ├── [GAP] [→E2E] eventType=deleted → 로그만, DB 변경 X
+  │   ├── [GAP] fetch + apply 통합 happy path          ├── [GAP] X-WEBHOOK-SECRET 불일치 → 401
+  │   └── [GAP] CTRL 에러 propagation                  ├── [GAP] X-WEBHOOK-SECRET 누락 → 401
+  └── handle_webhook_event(payload, db)                └── [GAP] 잘못된 JSON body → 422
+      ├── [GAP] eventType 분기 (4가지)
+      ├── [GAP] storeNo→stores 미존재 → log + 200 OK
+      └── [GAP] idempotent — 같은 payload 2회 → 동일 결과 (REGRESSION 보호)
+
+[+] backend/app/routers/webhooks.py (신규)
+  └── POST /api/v1/webhooks/ctrl/store
+      ├── [GAP] Depends(X-WEBHOOK-SECRET) 검증
+      ├── [GAP] 200 OK happy path (< 500ms)
+      └── [GAP] handle_webhook_event 위임
+
+[+] backend/app/routers/schedules.py (변경 — REGRESSION★)
+  └── POST /stores/{id}/schedules/sync
+      ├── [GAP] ctrl_sync.sync_store_schedules 호출
+      ├── [GAP] 응답 형식 {success, data:{updated_count, skipped_manual}}
+      └── [GAP] external_poll 의존성 제거 (회귀 안전성)
+
+[+] frontend/app/stores/[store_id]/page.tsx (변경)
+  └── "외부 서버에서 동기화" 버튼
+      ├── [→QA] 클릭 → loading 표시 → 성공 토스트
+      ├── [→QA] 에러 → 명확한 메시지 ("외부 인증 실패" / "응답 없음" 등)
+      └── [→QA] 같은 페이지 다른 영역(매장 정보·CCTV·센서 탭) 회귀 없음
+
+COVERAGE 목표: backend 자동 23개 path → tests/test_ctrl_sync.py + 확장 test_schedules.py
+                frontend 수동 6 시나리오 (/qa + agent-browser)
+
+REGRESSION★:
+  - is_manual=1 보존 (자동 sync 침범 방지)
+  - schedules/sync 라우터 응답 형식 유지(기존 클라 호환)
+  - idempotency (webhook 중복 수신)
+```
+
+### Failure modes
+
+| 코드패스 | 한 가지 현실 실패 | 테스트 | 에러 핸들링 | 사용자에게 보이는 메시지 |
+|---|---|---|---|---|
+| `_ctrl_daysn_to_our_dow` 오매핑 | 사용자가 의식 못 함 | 7요일 단위테스트 | N/A — 순수함수 | (silent) — 테스트로만 방어 |
+| `fetch_store_detail` CTRL 401 | API 키 만료 | unit + e2e | httpx HTTPStatusError → 502 응답 | UI "외부 인증 실패. 운영팀 확인 필요" |
+| `fetch_store_detail` timeout | CTRL 일시 장애 | unit (mock) | httpx.TimeoutException → 504 응답 | UI "외부 서버 응답 없음. 잠시 후 재시도" |
+| `apply_control_times` is_manual=1 덮어쓰기 시도 | 운영자 수동 설정 침범 (REGRESSION) | unit | WHERE is_manual=0 가드 | (방어됨) |
+| webhook secret 불일치 | n8n 설정 어긋남 | unit | 401 + log | (n8n 운영자 확인) |
+| 같은 webhook 2회 수신 | n8n 재시도 또는 운영 손동작 | unit | controlTimes 덮어쓰기 → 자연 idempotent | (silent OK) |
+| `deleted` webhook 받음 | CTRL에서 매장 폐점 | unit | log만, DB 변경 X | 운영자가 직접 결정 (실수 보호) |
+
+**Critical gap**: 없음. `_ctrl_daysn_to_our_dow`의 silent 매핑 오류는 단위테스트로 방어가 필수 — 그래서 A1 결정에 명시.
+
+## Performance review
+
+No issues, moving on.
+
+근거:
+- webhook 처리: stores row 1건 lookup + monitoring_schedules 7행 UPSERT 단일 commit. < 100ms 충분.
+- `fetch_store_detail` 외부 호출: httpx timeout 10s 권장. CTRL 자체가 느리면 운영자가 인지하고 retry.
+- `apply_control_times`: 매장당 7행 UPDATE. 100매장 동시 push도 < 5초.
+
+## Implementation Tasks
+
+| ID | 우선순위 | 인력 | CC | 컴포넌트 | 설명 |
+|---|---|---|---|---|---|
+| **T1 CONTRACT** | P1 | ~30min | ~10min | shared | `shared/contracts/api.md` 에 webhook endpoint·CTRL fetch·인증 헤더 명세 추가. 양 팀 inbox 통지. |
+| **T2 BE-CTRL-SVC** | P1 | ~3h | ~25min | backend | `services/ctrl_sync.py` 신규 (helper + fetch + apply + sync + handle_webhook). TDD 7요일 매핑 + 8 시나리오. |
+| **T3 BE-WEBHOOK** | P1 | ~2h | ~20min | backend | `routers/webhooks.py` 신규 + Pydantic `CtrlStoreEvent` + Header 인증. TDD 5 시나리오. |
+| **T4 BE-SCHEDULES** | P1 | ~1h | ~10min | backend | `routers/schedules.py:sync_schedules` ctrl_sync 위임. external_poll.py에 DEPRECATED 주석. 회귀 테스트. |
+| **T5 BE-CONFIG** | P1 | ~30min | ~5min | backend | `config.py` + `.env.example` 에 CTRL_API_BASE, CTRL_API_KEY, CTRL_WEBHOOK_SECRET 추가. `main.py` 에 webhook router 등록. |
+| **T6 FE-BUTTON** | P1 | ~2h | ~15min | frontend | `stores/[store_id]/page.tsx` "외부 서버에서 동기화" 버튼 + 토스트 + 에러 처리. `lib/api.ts` syncSchedules 함수. |
+| **T7 OPS** | P2 | ~15min | n/a | ops | `.env` 운영 갱신, n8n 워크플로우에 우리 URL + 헤더 등록, 한 매장 dry-run |
+
+**의존 그래프**:
+```
+T1 CONTRACT ─┬─▶ T2 BE-SVC ──▶ T3 BE-WEBHOOK
+             │       └──▶ T4 BE-SCHEDULES
+             ├─▶ T5 BE-CONFIG
+             └─▶ T6 FE-BUTTON (T4 완료 후 통합 테스트 가능)
+
+T2~T6 완료 → 머지/배포 → T7 OPS (n8n 등록 + dry-run)
+```
+
+병렬 레인:
+- **A (orchestrator)**: T1 CONTRACT (먼저)
+- **B (backend)**: T2 → T3 → T4 → T5 (TDD 사이클)
+- **C (frontend)**: T6 (T4 완료 후 통합 검증; 그 전에는 mock API로 UI만)
+
+## NOT in scope (명시적 deferral)
+
+| 항목 | 사유 |
+|---|---|
+| 매장 기본정보 미러링 (storeNm, storeAddress, chargerNm, storePhone*) | D1 A안 — 보안 표면 좁힘 |
+| 장비 IP·ID·5종 비밀번호 미러링 | D1 A안 — CTRL이 source-of-truth, AES 키 관리 우리쪽으로 끌고오지 않음 |
+| `deleted` webhook의 자동 soft delete 처리 | 운영 실수 보호 — 사용자가 수동 결정 |
+| 신규 매장 created webhook 시 stores row 자동 INSERT | Edge 등록 흐름 그대로 — CTRL이 먼저 등장하는 매장은 무시 + 로그 |
+| n8n 워크플로우 구성 변경 | 운영팀 영역 — 우리는 URL/헤더 명세만 제공 |
+| 비밀번호 5필드 AES-256-CBC 복호화 | A안 — 우리 DB에 안 저장하니 복호화 자체 불필요 |
+| Frontend Jest infra 도입 | F-TEST-INFRA로 분리 (지난 라운드 결정 유지). 이번도 `/qa` 수동. |
+| `system_config` 테이블의 기존 `external_server_url`/`token` 마이그레이션 | system_config는 그대로 두고 우리는 `.env`로. 정리는 별도 TODO. |
+
+## What already exists
+
+| 기반 | 위치 | 활용 |
+|---|---|---|
+| `monitoring_schedules` 테이블 + `is_manual` 컬럼 | `models/monitoring_schedules.py:14` | controlTimes 반영 대상. 스키마 변경 0. |
+| `POST /stores/{store_id}/schedules/sync` 라우터 | `routers/schedules.py:81` | 동기화 버튼이 호출. 내부 위임 함수만 ctrl_sync로 교체 |
+| `services/external_poll.py` 의 `is_manual=1` 보존 로직 | line 59-77 | ctrl_sync 로 패턴 복사, deprecate marker만 추가 |
+| `system_config` 테이블 | `models/system_config.py` | 미사용 처리 — 새 키는 `.env`로 일관성 |
+| Python `datetime.weekday()` (0=월~6=일) | stdlib | DoW 매핑 정답값 검증의 기준 |
+| `httpx.AsyncClient` | external_poll 등에서 이미 사용 | ctrl_sync HTTP client 재사용 |
+| `app/auth.py:get_current_user` | 의존성 | 인증 라우터에 그대로 |
+
+## 후속 TODO 제안
+
+다음 plan-eng-review 라운드 또는 TODO 목록에 추가:
+
+- **CTRL-DELETE-WORKFLOW**: deleted webhook 자동 처리 (soft delete 옵션) — 운영 피드백 후
+- **CTRL-CREATED-AUTOREG**: 신규 매장 created webhook 시 stores row 자동 INSERT (Edge 등록 흐름과 정합성 협의 후)
+- **CTRL-DEVICE-MIRRORING**: 장비 IP·ID·비밀번호 5필드 미러링 (보안 키 관리·키 회전 정책 정해진 다음)
+- **SYSTEM-CONFIG-CLEANUP**: 사용 안 하는 `external_server_url`/`external_server_token` system_config 키 정리
+- **F-TEST-INFRA**: Frontend Jest setup (앞 라운드부터 누적)
+
 ## 다음 단계
 
-이 design doc은 `/plan-eng-review`의 입력으로 가는 게 자연스럽다. eng-review에서:
-- ctrl_sync.py service 구조 (CTRL API client 추상화 깊이)
-- webhook router의 idempotency 처리 (n8n 재시도는 없지만 운영자가 같은 webhook 본문을 2번 발사할 수 있음)
-- TDD 시나리오 — webhook 인증 401, eventType 분기, stores 미존재 매장, is_manual 보존, 동기화 버튼 happy path/실패
+CONTRACT 락인 + teammate spawn (지난 Phase 1 패턴).
 
-까지 락인하고 backend·frontend teammate spawn으로.
+---
 
-운영 적용은 Phase 1 패턴(머지 + .env 갱신 + systemd restart + pm2 restart)과 동일.
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|---|---|---|---|---|---|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | n/a (scope = office-hours D1) |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | not run (user skip) |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR (PLAN) | 2 issues locked (A1 DoW mapping, C1 deprecation), 0 critical gaps |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | minor UI (단일 버튼 + 토스트), not run |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | n/a |
+
+- **UNRESOLVED**: 0 (D1·D2·D3 모두 응답, design doc Open Q는 implementation 단계에서 default 처리)
+- **VERDICT**: ENG CLEARED — ready to implement (CONTRACT + 6 backend/frontend tasks + 1 ops). Phase 1 패턴 재사용.
