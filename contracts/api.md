@@ -183,6 +183,70 @@ Base URL: `http://backend:8080/api/v1`
 > 이미 확인된 알림은 `acknowledged_by IS NULL` 가드로 자동 제외 — 동시 호출 안전.
 > `400 INVALID_BODY`: body가 비었거나 모든 필터가 비었을 때.
 
+### Watch Alerts (관심로그)
+| Method | Path | 설명 |
+|---|---|---|
+| POST | /watch-alerts | 알림을 관심로그로 등록 (자동 ack 트랜잭션) → WS `alert.acknowledged` |
+| GET | /watch-alerts | 관심로그 목록 (status 필터, alert 스냅샷 join) |
+| PATCH | /watch-alerts/{id} | 상태/메모 변경 (status 전이 시 resolved_* 자동 채움/초기화) |
+| DELETE | /watch-alerts/{id} | hard delete (원본 alert_events 보존) |
+
+**POST /watch-alerts request body**:
+```json
+{ "alert_id": 4521, "note": "냉장고 3분 이상 열림, CCTV 다시 보기 필요" }
+```
+- `note`는 필수 (빈 문자열 400). 길이 최대 500자.
+- 트랜잭션: watch insert + alert ack (alert가 이미 ack된 경우 watch만 insert).
+- 응답 후 기존 `alert.acknowledged` WS broadcast 발생 → 다른 관제자 메인 화면에서 즉시 사라짐.
+- `404 ALERT_NOT_FOUND`: alert_id 미존재.
+
+**GET /watch-alerts query params**:
+- `status` (선택): `pending` | `resolved` | `all`. 기본 `all`. 그 외 값은 400.
+
+**PATCH /watch-alerts/{id} request body** (둘 다 선택, 최소 하나 필수):
+```json
+{ "status": "resolved" }
+{ "note": "현장 출동 후 정상 확인" }
+{ "status": "resolved", "note": "..." }
+```
+- `pending → resolved`: `resolved_at = NOW()`, `resolved_by = 현재 사용자` 자동 채움.
+- `resolved → pending`: `resolved_at = NULL`, `resolved_by = NULL` 자동 초기화.
+- status 값 검증: `pending` / `resolved` 외 400.
+
+**공통 응답 (POST/GET/PATCH)**:
+```json
+{
+  "success": true,
+  "data": {
+    "watch_id": 12,
+    "status": "pending",
+    "note": "냉장고 3분 이상 열림",
+    "created_by": { "id": 1, "username": "admin1" },
+    "created_at": "2026-05-26T22:14:33Z",
+    "resolved_by": null,
+    "resolved_at": null,
+    "alert": {
+      "alert_id": 4521,
+      "store_id": 30263,
+      "type_id": 5,
+      "type_name": "냉장고 도어",
+      "custom_name": "주류 냉장고 #2",
+      "snapshot_url": "https://.../snap.jpg",
+      "stream_url": "https://.../stream",
+      "occurred_at": "2026-05-26T22:13:50Z",
+      "importance": 4
+    }
+  }
+}
+```
+GET은 `data`가 위 object의 배열, `created_at DESC` 정렬.
+
+**DELETE /watch-alerts/{id} 응답**:
+```json
+{ "success": true }
+```
+원본 `alert_events`는 보존 (감사 추적).
+
 ### Logs
 | Method | Path | 설명 |
 |---|---|---|

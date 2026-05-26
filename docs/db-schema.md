@@ -115,6 +115,27 @@ CREATE INDEX idx_alert_events_store ON alert_events(store_id, occurred_at);
 CREATE INDEX idx_alert_events_ack   ON alert_events(acknowledged_by, occurred_at);
 ```
 
+### watch_alerts
+관심로그 — 관제자가 특별관리 항목으로 분리한 알림. 메모/상태/처리자 추적.
+```sql
+CREATE TABLE watch_alerts (
+  id              SERIAL PRIMARY KEY,
+  alert_event_id  INTEGER NOT NULL REFERENCES alert_events(id) ON DELETE CASCADE,
+  note            TEXT    NOT NULL,                            -- 등록 시 필수, 이후 수정 가능
+  status          TEXT    NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending', 'resolved')),   -- 확인중 / 처리완료
+  created_by      INTEGER NOT NULL REFERENCES users(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resolved_by     INTEGER REFERENCES users(id),                -- pending이면 NULL
+  resolved_at     TIMESTAMPTZ                                  -- pending이면 NULL
+);
+CREATE INDEX idx_watch_alerts_status      ON watch_alerts(status, created_at DESC);
+CREATE INDEX idx_watch_alerts_alert_event ON watch_alerts(alert_event_id);
+```
+- 등록 시 단일 트랜잭션으로 watch insert + 원본 alert ack (acknowledged_by/at 채움).
+- 삭제는 hard delete (이 row만). 원본 `alert_events`는 보존.
+- ON DELETE CASCADE: 원본 alert가 (드물게) 삭제되면 watch도 함께 사라짐.
+
 ### alert_triggers
 어떤 entity type + 상태 전환이 alert를 발생시키는지 정의
 ```sql
