@@ -209,6 +209,88 @@ Base URL: `http://backend:8080/api/v1`
 |---|---|---|
 | POST | /edge/register | 최초 부팅 시 매장 등록 요청 → 외부 서버 매칭 → MQTT 계정 발급 |
 
+### CTRL 동기화 (외부 webhook 수신 + 수동 동기화)
+
+| Method | Path | 설명 |
+|---|---|---|
+| POST | /webhooks/ctrl/store | n8n 중계로 CTRL 매장 변경 webhook 수신 (`X-WEBHOOK-SECRET` 인증) |
+| POST | /stores/{store_id}/schedules/sync | 운영자 수동 동기화 — CTRL `/api/store/store_detail` 호출 후 monitoring_schedules 반영 |
+
+#### POST /webhooks/ctrl/store
+
+**인증**: `X-WEBHOOK-SECRET` 헤더 + 우리 `.env`의 `CTRL_WEBHOOK_SECRET` 검증. 불일치/누락 시 `401`. 세션 쿠키 불필요 (서버-서버 호출).
+
+**요청 본문** (CTRL 원본 passthrough, n8n이 변형 없이 전달):
+```json
+{
+  "storeNo": 30584,
+  "storeNm": "강남점",
+  "eventType": "updated",
+  "controlTimes": [
+    { "daySn": 2, "dayNm": "월", "beginTime": "03:00", "endTime": "09:00" },
+    { "daySn": 3, "dayNm": "화", "beginTime": "03:00", "endTime": "10:00" },
+    { "daySn": 4, "dayNm": "수", "beginTime": "03:00", "endTime": "09:00" },
+    { "daySn": 5, "dayNm": "목", "beginTime": "03:00", "endTime": "10:00" },
+    { "daySn": 6, "dayNm": "금", "beginTime": "03:00", "endTime": "10:00" },
+    { "daySn": 7, "dayNm": "토", "beginTime": "05:00", "endTime": "11:00" },
+    { "daySn": 1, "dayNm": "일", "beginTime": "",      "endTime": ""      }
+  ],
+  "delAt": "N",
+  "timestamp": "2026-05-26T12:37:17.874"
+}
+```
+
+> 본문에는 매장명·주소·담당자·연락처·장비 IP/Pwd 필드도 포함되지만 우리는 **무시**한다 (CTRL이 source-of-truth).
+
+**필수 필드**: `storeNo`, `eventType`, `controlTimes`. 누락 시 `422`.
+
+**`eventType` 분기**:
+| 값 | 우리 동작 |
+|---|---|
+| `created` | `controlTimes` → `monitoring_schedules` 반영. `stores` row 미존재 시 무시 + 로그 (Edge 등록 우선). |
+| `updated` | controlTimes만 추출해 반영. |
+| `time_updated` | 동일하게 controlTimes 반영. |
+| `deleted` | 로그만 남기고 DB 변경 X (운영 실수 보호). |
+
+**`controlTimes[]` 요일 매핑**: CTRL `daySn` (1=일, 2=월, ..., 7=토) ↔ 우리 `monitoring_schedules.day_of_week` (0=월, ..., 6=일, Python 표준). 변환 `(daySn + 5) % 7`.
+
+**응답**:
+```json
+{
+  "success": true,
+  "data": {
+    "store_id": 30584,
+    "event_type": "updated",
+    "applied": "schedules",
+    "updated_count": 7,
+    "skipped_manual": 0
+  }
+}
+```
+
+- `updated_count`: 실제 갱신된 `monitoring_schedules` row 수 (`is_manual=0`만)
+- `skipped_manual`: 운영자가 수동 설정한(`is_manual=1`) 행으로 보존된 수
+- 매장 미존재/`deleted` 이벤트 시: `applied`는 `"none"`, `updated_count`/`skipped_manual` = 0
+
+#### POST /stores/{store_id}/schedules/sync (변경 — 위임)
+
+**인증**: 기존 세션 쿠키 그대로.
+
+**동작**: 내부적으로 `services/ctrl_sync.sync_store_schedules(store_id, db)` 호출 → CTRL `/api/store/store_detail?storeNo=N` 패치 → controlTimes 반영. `services/external_poll.py` 는 **DEPRECATED** 처리, 더는 호출되지 않는다.
+
+**응답** (기존 클라이언트 호환):
+```json
+{ "success": true, "data": { "updated_count": 7, "skipped_manual": 0 } }
+```
+
+**에러**:
+| HTTP | code | 발생 조건 |
+|---|---|---|
+| 502 | `CTRL_AUTH_FAILED` | CTRL `X-SERVER-API-KEY` 무효 또는 401 |
+| 504 | `CTRL_TIMEOUT` | CTRL 응답 10초 초과 |
+| 404 | `STORE_NOT_FOUND` | 우리 DB에 `stores.store_id` 미존재 |
+| 502 | `CTRL_STORE_NOT_FOUND` | CTRL이 해당 매장 `400 item not exist` 반환 |
+
 ### System
 | Method | Path | 설명 |
 |---|---|---|
