@@ -170,6 +170,15 @@ frontend/lib/api.ts                       변경 — syncSchedules({storeId}) �
 - **A1 (architecture)**: CTRL `daySn` (1=일, 2=월, ..., 7=토) ↔ `monitoring_schedules.day_of_week` (0=월, ..., 6=일, Python `weekday()` 표준)은 모델 line 14 + alert.py:30에서 확인됨. `services/ctrl_sync.py` 의 private helper `_ctrl_daysn_to_our_dow(n) = (n + 5) % 7` 로 단일화. `tests/test_ctrl_sync.py` 에 7개 요일 전체 테이블 단위테스트(daySn=1→6, 2→0, 3→1, 4→2, 5→3, 6→4, 7→5) 필수.
 - **C1 (code quality)**: `services/external_poll.py` 는 **DEPRECATED 주석** 추가 후 코드 보존. `routers/schedules.py:sync_schedules` 의 import·호출은 `ctrl_sync.sync_store_schedules(store_id, db)` 로 교체. dead code는 명시적 deprecation marker로 표시.
 
+### 2026-05-26 정책 정정 — is_manual 보존 폐기
+
+라이브 검증 후 사용자 의도가 우리 기존 가정과 달랐음:
+
+- **기존 (premise 1)**: "`is_manual=1` 행은 자동 동기화 시 보존" — `external_poll.py` 잔재
+- **수정**: CTRL = source-of-truth. **is_manual 값과 무관하게 모든 controlTimes 갱신**. is_manual 컬럼은 그대로 유지(운영자 흔적 — 누가 손댔는지 추적용)
+- 이유: 사용자가 운영자 화면에서 "스케줄에 따름 + 모든 요일 활성" 으로 설정해도 시간 자체가 안 바뀌는 게 혼란. 운영 정신 모델은 "CTRL 시간이 정답, 우리는 그걸 반영"
+- 적용: `services/ctrl_sync.py:apply_control_times` 가드 제거. `tests/test_ctrl_sync.py` test 이름·assertion 반전 (`test_apply_overrides_is_manual_one`). 응답 형식은 `skipped_manual` 키 유지하되 값은 항상 0.
+
 ## Test review — coverage 다이어그램
 
 ```

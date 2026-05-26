@@ -38,10 +38,14 @@ POST https://pcbang-iot-api.multion.synology.me/api/v1/webhooks/ctrl/store
 
 ### 필수 헤더
 
-| 헤더 | 값 | 비고 |
+n8n HTTP Request 노드의 **Headers** 항목에 두 줄 등록.
+
+| 헤더 이름 (Name 열) | 헤더 값 (Value 열) | 비고 |
 |---|---|---|
-| `Content-Type` | `application/json` | |
-| `X-WEBHOOK-SECRET` | `<공유 시크릿>` | 양쪽(n8n + 우리 `.env`)에 동일하게. 불일치/누락 시 `401`. |
+| `Content-Type` | `application/json` | 고정 |
+| `X-WEBHOOK-SECRET` | `<공유 시크릿 값>` | **헤더 이름은 정확히 `X-WEBHOOK-SECRET`**. `.env` 변수 이름 `CTRL_WEBHOOK_SECRET` 를 헤더 이름으로 적지 말 것. 양쪽(n8n 입력값 + 우리 `.env` 의 `CTRL_WEBHOOK_SECRET` 값)이 동일해야 함. 불일치/누락 시 `401 INVALID_SECRET`. |
+
+> **흔한 실수**: n8n에서 헤더 이름 칸에 `CTRL_WEBHOOK_SECRET` 을 적고 값 칸에 secret을 넣음. 그러면 우리 backend는 `X-WEBHOOK-SECRET` 헤더를 못 찾아서 401. 이름은 **고정 `X-WEBHOOK-SECRET`**, 값만 `.env` 의 시크릿.
 
 ### 본문 (CTRL 원본 payload 그대로 passthrough)
 
@@ -115,6 +119,8 @@ CTRL이 n8n에 보내는 본문을 그대로 우리쪽으로 전달하면 된다
 | `time_updated` | 관제시간만 수정 | 동일하게 controlTimes 반영. |
 | `deleted` | 매장 폐점/소프트 삭제 | **로그만 남기고 DB 변경 X**. 운영자가 IoT 쪽 데이터 정리 여부 수동 결정 (실수 보호). |
 
+> **갱신 정책 (2026-05-26 정책 정정)**: CTRL = source-of-truth. `monitoring_schedules.is_manual` 값과 **무관하게 모든 요일이 CTRL controlTimes 로 갱신**. `is_manual` 컬럼은 그대로 유지(누가 손댔는지 흔적). 응답의 `skipped_manual`은 호환성 위해 키만 남기고 항상 0.
+
 > 매장이 우리 DB에 없는데 webhook이 오면 → `200 OK` 반환 + `store_not_found store_no=N` 로그. n8n은 성공으로 인식하고 끝.
 
 ---
@@ -132,7 +138,7 @@ n8n에 두 개의 워크플로우를 만든다. 둘 다 우리 endpoint 1곳으�
 | 처리 노드 | HTTP Request 노드 (또는 동등) |
 | HTTP Request Method | `POST` |
 | HTTP Request URL | `https://pcbang-iot-api.multion.synology.me/api/v1/webhooks/ctrl/store` |
-| 헤더 | `Content-Type: application/json`<br/>`X-WEBHOOK-SECRET: {{ $env.CTRL_WEBHOOK_SECRET }}` |
+| 헤더 (Name → Value 2줄) | `Content-Type` → `application/json`<br/>`X-WEBHOOK-SECRET` → `{{ $env.CTRL_WEBHOOK_SECRET }}` &nbsp; *(헤더 이름 고정, 값만 n8n 환경변수에서 가져옴)* |
 | Body | `{{ $json }}` (트리거 본문 그대로 전달) |
 | 성공 응답 | HTTP 200만 성공 |
 | 재시도 | 없음 (운영 명세상 1회). 실패는 n8n 실행 로그에서 확인. |
@@ -146,7 +152,7 @@ n8n에 두 개의 워크플로우를 만든다. 둘 다 우리 endpoint 1곳으�
 | 처리 노드 | HTTP Request 노드 |
 | HTTP Request Method | `POST` |
 | HTTP Request URL | `https://pcbang-iot-api.multion.synology.me/api/v1/webhooks/ctrl/store` |
-| 헤더 | `Content-Type: application/json`<br/>`X-WEBHOOK-SECRET: {{ $env.CTRL_WEBHOOK_SECRET }}` |
+| 헤더 (Name → Value 2줄) | `Content-Type` → `application/json`<br/>`X-WEBHOOK-SECRET` → `{{ $env.CTRL_WEBHOOK_SECRET }}` &nbsp; *(헤더 이름 고정, 값만 n8n 환경변수에서 가져옴)* |
 | Body | `{{ $json }}` |
 | 성공 응답 | HTTP 200만 성공 |
 | 재시도 | 없음 |
@@ -249,7 +255,7 @@ n8n 워크플로우 등록 후, n8n UI의 "Execute Workflow" 버튼으로 트리
 
 | 증상 | 원인 | 조치 |
 |---|---|---|
-| n8n에서 401 응답 | `X-WEBHOOK-SECRET` 불일치 | n8n 변수 ↔ 우리 `.env` 값 비교. 공백·줄바꿈 포함 여부 확인. |
+| n8n에서 401 응답 | (a) 헤더 이름이 `X-WEBHOOK-SECRET` 가 아닌 `CTRL_WEBHOOK_SECRET` 같은 다른 값 → 우리가 헤더를 못 찾아 401. (b) 이름 맞지만 값 불일치 | n8n 노드 Headers 표 첫 칸(Name)이 정확히 `X-WEBHOOK-SECRET` 인지 확인. 그 다음 값(`{{$env.CTRL_WEBHOOK_SECRET}}`) 이 우리 `.env` 와 일치하는지(공백·줄바꿈 포함) 비교. |
 | n8n에서 404 응답 | URL 오타 또는 우리 backend `/webhooks` 라우터 미등록 | `curl -I https://pcbang-iot-api.multion.synology.me/api/v1/webhooks/ctrl/store` 응답 405면 라우터 등록은 OK (GET 미허용). 404면 라우터 등록 안 된 상태 → backend 재시작 또는 main.py include_router 확인. |
 | n8n에서 5xx | 우리 backend 내부 오류 | `sudo journalctl -u pcbang-backend -n 100` 로 스택트레이스 확인. 흔한 원인: CTRL_WEBHOOK_SECRET 미설정 (`KeyError`). |
 | 200 OK인데 monitoring_schedules 미갱신 | store가 우리 DB에 없거나 모든 row가 is_manual=1 | 응답 본문의 `updated_count`·`skipped_manual` 확인. 매장 미존재면 로그에 `store_not_found store_no=N`. 수동 보존된 매장이면 `skipped_manual=N`. |
